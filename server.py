@@ -788,6 +788,8 @@ class AppHandler(BaseHTTPRequestHandler):
         return f'''<article class="mk-theme" id="theme-{esc(theme['id'])}" lang="{esc(content_lang(theme))}"><{title_tag} class="mk-page-title">{esc(theme['title'])}</{title_tag}><div class="mk-split"><img src="/assets/{esc(theme['image'])}" alt="Illustration : {esc(theme['title'])}" loading="lazy"><div class="mk-theme-text">{question}{paragraphs}{signature}<a class="mk-more" href="{esc(more_href)}">Voir plus d’informations<br>{esc(theme['button'])}</a></div></div></article>'''
 
     def public_theme(self, theme_id: str) -> None:
+        if not theme_id.strip('/'):
+            return self.redirect('/#thematiques')
         if theme_id in THEME_ALIASES:
             return self.redirect(f'/thematique/{THEME_ALIASES[theme_id]}')
         theme = next((item for item in THEMES if item['id'] == theme_id), None)
