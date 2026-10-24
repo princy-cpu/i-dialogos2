@@ -1,42 +1,56 @@
 #!/usr/bin/env bash
-# Déploie le commit courant sur un environnement LWS, puis vérifie /healthz et revient en arrière si besoin.
+# Déploie le commit courant sur l'hébergement LWS, vérifie /healthz et revient en arrière en cas de problème.
 # Utilisé par GitHub Actions ; utilisable aussi à la main (Git Bash ou Linux) en dépannage.
 #
-#   deploy/deploy.sh deploy     # déploie le commit courant
-#   deploy/deploy.sh rollback   # remet la version précédente
+#   deploy/deploy.sh deploy     déploie le commit courant
+#   deploy/deploy.sh rollback   remet la version précédente
 #
-# Variables attendues :
-#   SSH_HOST, SSH_USER         serveur et compte cPanel
-#   SSH_PORT                   facultatif (22 par défaut)
-#   SSH_KEY_FILE               facultatif : clé privée à utiliser
-#   DEPLOY_PATH                dossier du site dans le compte, ex. idialogos-prod
-#   SITE_URL                   adresse publique, ex. https://preprod.exemple.fr
-#   VENV_PATH                  facultatif : environnement Python si la détection automatique échoue
-#   HEALTH_TRIES               facultatif : nombre d'essais du contrôle de santé (20 par défaut)
+# Variables :
+#   SSH_HOST, SSH_USER    serveur et identifiant SSH (ex. 185.98.131.155, i-dia2811273)
+#   SSH_PORT              facultatif (22 par défaut)
+#   SSH_KEY_FILE          facultatif : clé privée à utiliser
+#   DEPLOY_PATH           dossier web dans le compte, ex. htdocs
+#   SITE_URL              adresse publique du site, ex. https://i-dialogos.com
+#   DEPLOY_TOKEN          jeton partagé avec le serveur (même valeur que dans .app/shared/app.env)
+#   SITE_IP               facultatif : adresse IP du serveur, pour joindre le site avant que le domaine pointe vers LWS
+#   HEALTH_TRIES          facultatif : nombre d'essais du contrôle de santé (20 par défaut)
 set -euo pipefail
 
 ACTION="${1:-deploy}"
 : "${SSH_HOST:?SSH_HOST manquant}" "${SSH_USER:?SSH_USER manquant}" "${DEPLOY_PATH:?DEPLOY_PATH manquant}" "${SITE_URL:?SITE_URL manquant}"
 SSH_PORT="${SSH_PORT:-22}"
+SITE_URL="${SITE_URL%/}"
 HERE="$(cd "$(dirname "$0")" && pwd)"
 SSH_OPTS=(-p "$SSH_PORT" -o BatchMode=yes -o ConnectTimeout=20 -o ServerAliveInterval=15)
 if [ -n "${SSH_KEY_FILE:-}" ]; then SSH_OPTS+=(-i "$SSH_KEY_FILE"); fi
 TARGET="$SSH_USER@$SSH_HOST"
 
+# Avant la bascule du domaine, les requêtes HTTP sont envoyées directement à l'adresse IP du serveur LWS.
+CURL_OPTS=(-sS --max-time 120 -H 'Cache-Control: no-cache')
+if [ -n "${SITE_IP:-}" ]; then
+  host_port="${SITE_URL#*://}"; host_port="${host_port%%/*}"
+  host="${host_port%%:*}"
+  port="${host_port##*:}"; [ "$port" = "$host_port" ] && { [ "${SITE_URL%%://*}" = https ] && port=443 || port=80; }
+  CURL_OPTS+=(--resolve "$host:$port:$SITE_IP")
+fi
+
 remote() { # remote <script local> <arguments...> : exécute un script local sur le serveur
   local script="$1"; shift
-  ssh "${SSH_OPTS[@]}" "$TARGET" "KEEP_RELEASES='${KEEP_RELEASES:-5}' VENV_PATH='${VENV_PATH:-}' bash -s -- $(printf '%q ' "$@")" < "$script"
+  ssh "${SSH_OPTS[@]}" "$TARGET" "KEEP_RELEASES='${KEEP_RELEASES:-5}' bash -s -- $(printf '%q ' "$@")" < "$script"
 }
 
-health() { # health [commit attendu] : attend que /healthz réponde (et annonce la bonne version)
+ops() { # ops <backup|migrate> [paramètres] : opération de déploiement exécutée par l'application elle-même
+  : "${DEPLOY_TOKEN:?DEPLOY_TOKEN manquant}"
+  curl "${CURL_OPTS[@]}" -X POST -H "X-Deploy-Token: $DEPLOY_TOKEN" -w '\n%{http_code}' "$SITE_URL/_ops/$1${2:+?$2}"
+}
+
+health() { # health [commit attendu] : attend que /healthz réponde « ok » (et annonce la bonne version)
   local expected="${1:-}" tries="${HEALTH_TRIES:-20}" body=""
   for attempt in $(seq 1 "$tries"); do
-    body="$(curl -fsS --max-time 15 -H 'Cache-Control: no-cache' "${SITE_URL%/}/healthz" 2>/dev/null || true)"
-    if [ -n "$body" ] && printf '%s' "$body" | grep -q '"status": "ok"'; then
-      if [ -z "$expected" ] || printf '%s' "$body" | grep -q "\"version\": \"$expected\""; then
-        echo "Contrôle de santé réussi (essai $attempt) : $body"
-        return 0
-      fi
+    body="$(curl "${CURL_OPTS[@]}" --max-time 15 "$SITE_URL/healthz" 2>/dev/null || true)"
+    if [[ "$body" == *'"status": "ok"'* ]] && { [ -z "$expected" ] || [[ "$body" == *"\"version\": \"$expected\""* ]]; }; then
+      echo "Contrôle de santé réussi (essai $attempt) : $body"
+      return 0
     fi
     sleep 3
   done
@@ -44,26 +58,56 @@ health() { # health [commit attendu] : attend que /healthz réponde (et annonce 
   return 1
 }
 
+rollback() {
+  local output version
+  output="$(remote "$HERE/remote_rollback.sh" "$DEPLOY_PATH")" || return 1
+  echo "$output"
+  version="${output##*VERSION=}"
+  health "$version"
+}
+
 case "$ACTION" in
   deploy)
     SHA="$(git rev-parse HEAD)"
-    ARCHIVE="release-${SHA:0:12}.tar.gz"
-    git archive --format=tar.gz -o "/tmp/$ARCHIVE" HEAD
-    echo "Archive : $(du -h "/tmp/$ARCHIVE" | cut -f1) (commit ${SHA:0:8})"
-    # Envoi par le canal SSH lui-même (ne dépend pas de SFTP, parfois désactivé sur les hébergements mutualisés).
-    ssh "${SSH_OPTS[@]}" "$TARGET" "mkdir -p ~/$(printf '%q' "$DEPLOY_PATH")/releases && cat > ~/$(printf '%q' "$DEPLOY_PATH")/releases/$ARCHIVE" < "/tmp/$ARCHIVE"
-    rm -f "/tmp/$ARCHIVE"
-    remote "$HERE/remote_deploy.sh" "$DEPLOY_PATH" "$ARCHIVE" "$SHA"
+    SHORT="${SHA:0:8}"
+    ARCHIVE="/tmp/release-$SHORT.tar.gz"
+    git archive --format=tar.gz -o "$ARCHIVE" HEAD
+    echo "Archive : $(du -h "$ARCHIVE" | cut -f1) (commit $SHORT)"
+    # Envoi par le canal SSH, décompressé à la réception (ni SFTP ni « cat » ne sont nécessaires sur le serveur).
+    incoming="$DEPLOY_PATH/.app/releases/incoming-$SHORT"
+    ssh "${SSH_OPTS[@]}" "$TARGET" "rm -rf ~/$(printf '%q' "$incoming") && mkdir -p ~/$(printf '%q' "$incoming") && tar -xzf - -C ~/$(printf '%q' "$incoming")" < "$ARCHIVE"
+    rm -f "$ARCHIVE"
+
+    prepared="$(remote "$HERE/remote_deploy.sh" prepare "$DEPLOY_PATH" "incoming-$SHORT" "$SHA")"
+    echo "$prepared"
+    VERSION="${prepared##*VERSION=}"
+
+    echo "Sauvegarde de la base avant mise en ligne"
+    backup="$(ops backup "label=avant-$SHORT" || true)"
+    if [ "${backup##*$'\n'}" = 200 ]; then
+      echo "${backup%$'\n'*}"
+    elif [ "${ALLOW_NO_BACKUP:-0}" = 1 ]; then
+      echo "Sauvegarde impossible (réponse : ${backup##*$'\n'}), poursuite autorisée (première mise en place)." >&2
+    else
+      echo "Sauvegarde impossible (HTTP ${backup##*$'\n'}) : déploiement interrompu, le site n'a pas changé." >&2
+      echo "Pour la toute première mise en place, relancer avec ALLOW_NO_BACKUP=1." >&2
+      exit 1
+    fi
+
+    remote "$HERE/remote_deploy.sh" activate "$DEPLOY_PATH" "$VERSION"
+
+    echo "Migrations"
+    migrated="$(ops migrate || true)"
+    echo "${migrated%$'\n'*} (HTTP ${migrated##*$'\n'})"
+
     if ! health "$SHA"; then
       echo "Retour automatique à la version précédente." >&2
-      rollback_to="$(remote "$HERE/remote_rollback.sh" "$DEPLOY_PATH" | tee /dev/stderr | sed -n 's/^VERSION=//p' || true)"
-      health "$rollback_to" || echo "ATTENTION : le site ne répond pas non plus après le retour arrière." >&2
+      rollback || echo "ATTENTION : le retour arrière n'a pas abouti ; vérifier le site immédiatement." >&2
       exit 1
     fi
     ;;
   rollback)
-    rollback_to="$(remote "$HERE/remote_rollback.sh" "$DEPLOY_PATH" | tee /dev/stderr | sed -n 's/^VERSION=//p')"
-    health "$rollback_to"
+    rollback
     ;;
   *)
     echo "Action inconnue : $ACTION (deploy ou rollback)" >&2; exit 2 ;;

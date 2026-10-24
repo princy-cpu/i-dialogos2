@@ -7,7 +7,7 @@ on:
       target:
         description: Environnement à remettre sur la version précédente
         type: choice
-        options: [preprod, production]
+        options: [production, preprod]
         default: production
 
 permissions:
@@ -28,9 +28,10 @@ jobs:
           action: rollback
           ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }}
           ssh-known-hosts: ${{ secrets.SSH_KNOWN_HOSTS }}
+          deploy-token: ${{ inputs.target == 'production' && secrets.DEPLOY_TOKEN || (secrets.PREPROD_DEPLOY_TOKEN || secrets.DEPLOY_TOKEN) }}
           ssh-host: ${{ vars.SSH_HOST }}
           ssh-user: ${{ vars.SSH_USER }}
           ssh-port: ${{ vars.SSH_PORT }}
           deploy-path: ${{ inputs.target == 'production' && vars.PROD_DEPLOY_PATH || vars.PREPROD_DEPLOY_PATH }}
           site-url: ${{ inputs.target == 'production' && vars.PROD_SITE_URL || vars.PREPROD_SITE_URL }}
-          venv-path: ${{ inputs.target == 'production' && vars.PROD_VENV_PATH || vars.PREPROD_VENV_PATH }}
+          site-ip: ${{ inputs.target == 'production' && vars.PROD_SITE_IP || vars.PREPROD_SITE_IP }}

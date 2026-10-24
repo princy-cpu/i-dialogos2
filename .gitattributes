@@ -1,12 +1,19 @@
 # Scripts exécutés sous Linux (serveur LWS, GitHub Actions) : fins de ligne Unix obligatoires.
 *.sh text eol=lf
 *.yml text eol=lf
+.htaccess text eol=lf
+*.htaccess text eol=lf
 
-# Exclus de l'archive envoyée sur le serveur (git archive).
+# Exclus de l'archive envoyée sur le serveur (git archive) : seuls src/, public/, index.html, les feuilles de style,
+# les scripts et assets/ sont déployés.
 /tests export-ignore
 /.github export-ignore
+/deploy export-ignore
 /PAGES* export-ignore
-/requirements-dev.txt export-ignore
+/*.py export-ignore
+/*.md export-ignore
+/requirements*.txt export-ignore
 /ruff.toml export-ignore
+/dev-router.php export-ignore
 /.gitattributes export-ignore
 /.gitignore export-ignore

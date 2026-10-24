@@ -1,29 +1,46 @@
 # I-Dialogos — publications
 
-Application web pour rédiger et publier des articles. Le stockage des comptes et des publications utilise PostgreSQL en local et MySQL en production.
+Application web pour rédiger et publier des articles, écrite en **PHP** (dossier `src/`) avec une base **PostgreSQL**. Elle tourne sur l'hébergement mutualisé LWS (offre Starter).
 
-## Démarrer
+## Démarrer (sur votre poste)
 
-Installez le pilote PostgreSQL Python :
+Prérequis : PHP 8.0 ou plus récent avec les extensions `pdo_pgsql`, `mbstring`, `curl` et `zlib` (sous Windows, les activer dans `php.ini`), et une base PostgreSQL nommée `idialogos` (par exemple avec `createdb idialogos`).
 
-```powershell
-python -m pip install -r requirements.txt
+Créez un fichier `app.env` à la racine du projet (il est exclu de Git) :
+
+```
+DATABASE_URL=postgresql://postgres:mot_de_passe@localhost:5432/idialogos
 ```
 
-Créez une base PostgreSQL nommée `idialogos` (par exemple avec `createdb idialogos`), puis indiquez son URL de connexion dans PowerShell :
+Puis lancez le serveur de développement :
 
 ```powershell
-$env:DATABASE_URL = "postgresql://postgres:mot_de_passe@localhost:5432/idialogos"
-python server.py
+php -S 127.0.0.1:8000 dev-router.php
 ```
 
-Adaptez le nom d’utilisateur et le mot de passe à votre installation PostgreSQL. Ouvrez ensuite `http://127.0.0.1:8000`. Au premier démarrage, le site redirige vers `/admin/setup` pour créer le compte administrateur. Le mot de passe doit contenir au moins 12 caractères. Puis ouvrir **Administration** pour gérer les contenus.
+Ouvrez ensuite `http://127.0.0.1:8000`. Au premier démarrage, le site redirige vers `/admin/setup` pour créer le compte administrateur (12 caractères minimum pour le mot de passe), puis ouvrez **Administration** pour gérer les contenus. Pour arrêter le serveur : `Ctrl+C`.
 
-Pour arrêter le serveur : `Ctrl+C`.
+Les tables sont créées automatiquement, puis mises à jour par les migrations de `src/db.php` (liste `MIGRATIONS`).
+
+## Organisation du code
+
+| Fichier | Rôle |
+|---|---|
+| `src/front.php` | point d'entrée et aiguillage des adresses |
+| `src/public_pages.php` | accueil, thématiques, articles, actualités, commentaires |
+| `src/admin_pages.php` | administration |
+| `src/translation.php` | détection de langue et traduction automatique (avec cache en base) |
+| `src/db.php` | connexion PostgreSQL, structure de la base et migrations |
+| `src/html.php`, `src/http.php` | nettoyage du HTML, sessions, sécurité des formulaires |
+| `src/ops.php` | sauvegarde et migrations déclenchées par le déploiement automatique |
+| `public/` | fichiers installés à la racine du site sur le serveur (chargeur et règles Apache) |
+| `tests/` | tests de bout en bout (Python, `pytest`) qui interrogent un vrai serveur PHP |
+
+Les scripts Python (`server.py`, `translation.py`, `import_site.py`, `export_postgres_sql.py`) sont l'ancienne version et les outils d'import : ils ne sont pas déployés.
 
 ## Importer les articles de l’ancien site I-Dialogos
 
-Après avoir configuré `DATABASE_URL` et installé les dépendances (`python -m pip install -r requirements.txt`, qui ajoute Pillow pour convertir les images), lancer :
+Outil en Python, à lancer sur votre poste. Après avoir défini `$env:DATABASE_URL` et installé les dépendances (`python -m pip install -r requirements.txt`, qui ajoute Pillow pour convertir les images), lancer :
 
 ```powershell
 python import_site.py --limite 5   # essai sur 5 articles
@@ -66,27 +83,36 @@ La liste des articles (« Les Notes ») est placée entre les thématiques et le
 
 ## Traduction automatique
 
-Le code se trouve dans `translation.py`. Les traductions sont mises en cache dans la table `translations` de PostgreSQL : chaque passage n’est traduit qu’une fois par langue, et seul un passage modifié est retraduit. À l’enregistrement d’un contenu publié, ses traductions sont préparées en arrière-plan dans toutes les langues actives. La page **Langues** de l’administration permet aussi de re-détecter la langue des contenus existants et de traduire tous les contenus en une fois.
+Le code se trouve dans `src/translation.php`. Les traductions sont mises en cache dans la table `translations` de PostgreSQL : chaque passage n’est traduit qu’une fois par langue, et seul un passage modifié est retraduit. À l’enregistrement d’un contenu publié, ses traductions sont préparées juste après l’envoi de la page, dans toutes les langues actives. La page **Langues** de l’administration permet aussi de re-détecter la langue des contenus existants et de traduire tous les contenus en une fois.
 
-Service de traduction, choisi par variable d’environnement :
+Service de traduction, choisi dans `app.env` :
 
-```powershell
-# Par défaut, sans configuration : service web public de Google Traduction (gratuit, sans clé, non officiel).
-$env:DEEPL_API_KEY = "votre-cle:fx"                     # DeepL (recommandé en production ; offre gratuite disponible)
-$env:LIBRETRANSLATE_URL = "https://votre-instance"      # ou LibreTranslate (+ $env:LIBRETRANSLATE_API_KEY)
-$env:TRANSLATION_PROVIDER = "none"                      # ou désactiver la traduction
+```
+# Par défaut, sans réglage : service web public de Google Traduction (gratuit, sans clé, non officiel).
+DEEPL_API_KEY=votre-cle:fx                 # DeepL (recommandé en production ; offre gratuite disponible)
+LIBRETRANSLATE_URL=https://votre-instance  # ou LibreTranslate (+ LIBRETRANSLATE_API_KEY)
+TRANSLATION_PROVIDER=none                  # ou désactiver la traduction
 ```
 
-Si le service ne répond pas, le texte d’origine s’affiche avec un message, et un nouvel essai a lieu une minute plus tard.
+Si le service ne répond pas, le texte d’origine s’affiche avec un message, et un nouvel essai a lieu une minute plus tard. Les traductions déjà faites par l’ancienne version Python sont réutilisées telles quelles.
+
+## Tests
+
+Avec une base PostgreSQL **dédiée aux tests** (elle est vidée à chaque lancement) :
+
+```powershell
+python -m pip install -r requirements-dev.txt
+$env:DATABASE_URL = "postgresql://postgres:mot_de_passe@localhost:5432/idialogos_test"
+python -m pytest -q tests
+```
+
+Les tests lancent eux-mêmes un serveur PHP (`php -S`) et parcourent le site comme un visiteur et un administrateur.
 
 ## Mise en production et déploiement continu
 
-- [DEPLOIEMENT_LWS.md](DEPLOIEMENT_LWS.md) : hébergement LWS (MySQL, `passenger_wsgi.py`) et reprise des données avec `export_mysql.py`.
-- [CICD.md](CICD.md) : tests et déploiement automatiques avec GitHub Actions (préproduction à chaque merge sur `main`, production à chaque version publiée, retour arrière automatique).
+- [DEPLOIEMENT_LWS.md](DEPLOIEMENT_LWS.md) : installation sur l'hébergement LWS Starter (base PostgreSQL, réglages, domaine et HTTPS).
+- [CICD.md](CICD.md) : tests et déploiement automatiques avec GitHub Actions (production à chaque version publiée, sauvegarde de la base avant chaque mise en ligne, retour arrière automatique).
 
 ## Données
 
-Les articles, comptes, catégories, étiquettes, modèles, sessions et commentaires sont stockés dans PostgreSQL. La configuration de connexion est fournie via `DATABASE_URL`. Les images téléversées sont dans `uploads/`. Sauvegardez la base PostgreSQL (par exemple avec `pg_dump idialogos`) et ce dossier pour conserver le site.
-
-Le serveur écoute par défaut uniquement sur `127.0.0.1` : le compte et les contenus sont prévus pour une utilisation sur cette machine. Une mise en ligne publique ou un accès partagé nécessiteraient un hébergement HTTPS et une configuration serveur adaptée.
-# i-dialogos2
+Les articles, comptes, catégories, étiquettes, modèles, sessions, commentaires et traductions sont stockés dans PostgreSQL. Les images téléversées sont dans `uploads/` (sur le serveur : `htdocs/uploads/`). Sur le serveur, une sauvegarde de la base est faite automatiquement avant chaque déploiement (`htdocs/.app/backups/`).

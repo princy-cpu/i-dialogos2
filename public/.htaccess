@@ -1,0 +1,23 @@
+# I-Dialogos : toutes les adresses passent par index.php, sauf les images téléversées et .well-known (servis directement).
+Options -Indexes
+DirectoryIndex index.php
+
+<IfModule mod_rewrite.c>
+    RewriteEngine On
+    RewriteBase /
+
+    # Dossiers internes : jamais accessibles depuis le web.
+    RewriteRule ^\.(app|git) - [R=404,L]
+
+    # Images téléversées et fichiers de validation du certificat HTTPS (.well-known) : servis directement.
+    RewriteCond %{REQUEST_URI} ^/(uploads|\.well-known)/
+    RewriteCond %{REQUEST_FILENAME} -f
+    RewriteRule ^ - [L]
+
+    RewriteCond %{REQUEST_URI} !^/index\.php$
+    RewriteRule ^ index.php [L,QSA]
+</IfModule>
+
+<IfModule mod_headers.c>
+    Header always set X-Content-Type-Options "nosniff"
+</IfModule>

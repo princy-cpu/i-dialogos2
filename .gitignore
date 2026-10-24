@@ -12,9 +12,11 @@ uploads/
 idialogos_mysql.sql
 idialogos_mysql.zip
 idialogos_lws.zip
-idialogos_uploads.zip
 *.sql.gz
 
 # Réglages locaux
 .env
 app.env
+export_lws/
+uploads.tar
+idialogos_uploads.zip

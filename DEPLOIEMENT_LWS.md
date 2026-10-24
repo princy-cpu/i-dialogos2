@@ -1,87 +1,99 @@
-# Mise en production sur LWS (hébergement cPanel)
+# Installation sur l'hébergement LWS (offre Starter)
 
-Ce document couvre ce qui est propre à l'hébergement LWS et la **reprise des données**.
-Le déploiement du code est automatique : voir [CICD.md](CICD.md) (mise en place pas à pas, à suivre après ce document).
+L'offre Starter fournit **PHP**, **PostgreSQL** (base joignable uniquement depuis les serveurs de LWS) et un **accès SSH** très réduit. Le site tourne donc en PHP, avec la même base PostgreSQL qu'en local.
 
-## Pourquoi MySQL et passenger_wsgi.py
+À faire une seule fois. Ensuite, chaque mise en ligne est automatique : voir [CICD.md](CICD.md).
 
-L'hébergement cPanel de LWS ne propose pas PostgreSQL : en production, le site utilise **MySQL** (MariaDB).
-Le code choisit le moteur d'après `DATABASE_URL` :
+## Repères
 
-- `postgresql://…` : PostgreSQL, comme sur le poste local (rien ne change pour le développement) ;
-- `mysql://…` : MySQL/MariaDB, sur LWS.
+| Élément | Valeur |
+|---|---|
+| Accès SSH | `ssh i-dia2811273@185.98.131.155` (identifiants du compte FTP) |
+| Racine du site | dossier `~/htdocs` (celui où arrive la connexion SSH) |
+| Base PostgreSQL | base et utilisateur `idial2811273`, serveur `pgsql3001.lwspanel.com`, port 5432 |
+| Réglages du site | `htdocs/.app/shared/app.env` (jamais accessible depuis le web) |
 
-Sur cPanel, Python est exécuté par Phusion Passenger (outil « Setup Python App »), qui appelle
-`passenger_wsgi.py` à chaque requête au lieu de lancer `python server.py`.
-Python 3.9 ou plus récent est nécessaire (choisir la version la plus récente proposée par cPanel).
+## 1. Version de PHP
 
-## 1. Exporter les données locales (sur ton PC)
+Dans l'espace client LWS, rubrique de configuration PHP de l'hébergement : choisir **PHP 8.3** (8.0 au minimum).
+Extensions nécessaires : `pdo_pgsql`, `mbstring`, `zlib` et `curl` (traduction automatique). Après la mise en ligne,
+l'adresse `/healthz` indique ce qui manque éventuellement.
 
-Dans PowerShell, dans le dossier du projet :
+## 2. Base de données
+
+Déjà faite : la base `idial2811273` contient les articles, les traductions et le compte administrateur.
+
+Pour la remplir de nouveau à partir de la base locale : `python export_postgres_sql.py` sur le poste, puis dans PhpPgAdmin,
+base `idial2811273` > **SQL** : exécuter les fichiers du dossier `export_lws` dans l'ordre (01, 02...).
+
+## 3. Fichier de réglages
+
+Générer d'abord un jeton de déploiement (PowerShell) et le garder pour GitHub (CICD.md) :
 
 ```powershell
-python -m pip install -r requirements.txt
-$env:DATABASE_URL = "postgresql://postgres:mot_de_passe@localhost:5432/idialogos"
-python export_mysql.py
+-join ((48..57) + (97..122) | Get-Random -Count 48 | ForEach-Object { [char]$_ })
 ```
 
-Le script crée `idialogos_mysql.sql` (tables, articles, actualités, catégories, étiquettes, commentaires,
-traductions déjà faites et compte administrateur). Ce fichier contient le compte administrateur :
-ne pas le publier ni le versionner (il est exclu par `.gitignore`).
+Puis, connecté en SSH, créer le fichier (les commandes `printf` et `mkdir` existent sur le serveur, `cat` non) :
 
-Les images sont dans `idialogos_uploads.zip` (contenu du dossier `uploads/`).
+```bash
+mkdir -p ~/htdocs/.app/shared
+printf '%s\n' \
+  'DATABASE_URL=postgresql://idial2811273:MOT_DE_PASSE@pgsql3001.lwspanel.com:5432/idial2811273' \
+  'DEPLOY_TOKEN=LE_JETON_GENERE' \
+  > ~/htdocs/.app/shared/app.env
+```
 
-## 2. Importer dans la base MySQL de l'environnement
+Si le mot de passe de la base contient
+des caractères spéciaux, les encoder : `@` → `%40`, `:` → `%3A`, `/` → `%2F`, `%` → `%25`, `#` → `%23`, `?` → `%3F`.
 
-Une fois la base créée (CICD.md, étape 2) : cPanel > **phpMyAdmin** > sélectionner la base > onglet **Importer** >
-choisir `idialogos_mysql.sql` > **Exécuter**. Si le fichier dépasse la taille autorisée, le compresser en `.zip`
-(phpMyAdmin accepte les fichiers compressés).
+Réglages facultatifs, une ligne chacun : `DEEPL_API_KEY=...` (traduction DeepL, recommandée), `COOKIE_SECURE=1`
+(à ajouter **seulement une fois le HTTPS actif**, voir étape 6).
 
-> L'import **supprime puis recrée** les tables du site : à faire avant l'ouverture du site
-> (ou pour remplacer entièrement les données).
+## 4. Images
 
-On peut importer le même fichier en préproduction : elle aura alors une copie des vraies données.
+Les images téléversées ne sont pas dans Git. Pour envoyer le dossier `uploads` du poste vers `htdocs/uploads`, depuis
+PowerShell, dans le dossier du projet (Windows fournit `tar`) :
 
-## 3. Vérifier après le premier déploiement
+```powershell
+tar -cf uploads.tar uploads
+cmd /c "ssh i-dia2811273@185.98.131.155 tar -xf - -C htdocs < uploads.tar"
+```
 
-- Le site affiche les articles importés ; `/healthz` répond `"status": "ok"`.
-- `/admin/login` : se connecter avec le compte administrateur existant (même mot de passe qu'en local).
-- En cas d'erreur : cPanel > **Métriques > Erreurs**, ou le journal de l'application (champ « Passenger log file » de
-  Setup Python App, par exemple `/home/moncompte/idialogos-prod/passenger.log`).
-  « base de données injoignable » signale presque toujours une erreur dans `DATABASE_URL` de `shared/app.env`
-  (préfixe du nom de base ou d'utilisateur oublié, utilisateur non rattaché à la base, caractère spécial non encodé).
+(le passage par `cmd` garantit que le fichier est transmis tel quel ; `uploads.tar` peut ensuite être supprimé)
 
-## 4. Domaine et HTTPS
+## 5. Première mise en ligne
 
-**Tant que le domaine i-dialogos.com n'est pas récupéré**, on travaille sur la préproduction (sous-domaine d'un domaine
-du compte, HTTPS normal). Pour voir la production sur son vrai nom avant la bascule, depuis ton PC seulement : relever
-l'adresse IP partagée du serveur (cPanel, colonne de droite), puis ajouter dans `C:\Windows\System32\drivers\etc\hosts`
-(Bloc-notes lancé en administrateur) : `IP_DU_SERVEUR  i-dialogos.com  www.i-dialogos.com`. Le certificat HTTPS n'étant
-pas encore émis, tester en `http://` avec `COOKIE_SECURE` absent de `app.env` (sinon la connexion à l'administration
-échoue). Retirer cette ligne après les tests.
+Avec GitHub Actions (recommandé, voir CICD.md) : onglet **Actions** > **CI/CD** > **Run workflow**, environnement
+`production`, cocher **Première mise en place**.
+
+Ce premier déploiement met de côté tout ce que contenait `htdocs` (ancien site) dans `htdocs/.app/ancien-site-<date>/`,
+hors d'atteinte du web : rien n'est supprimé. Le dossier `.well-known` (validation du certificat HTTPS) est conservé.
+
+## 6. Domaine et HTTPS
+
+**Tant que i-dialogos.com pointe vers l'ancien hébergeur**, le site LWS se consulte depuis votre PC en ajoutant cette ligne
+au fichier `C:\Windows\System32\drivers\etc\hosts` (Bloc-notes lancé en administrateur) :
+
+```
+185.98.131.155  i-dialogos.com  www.i-dialogos.com
+```
+
+puis en ouvrant `http://i-dialogos.com` (sans « s » : le certificat n'existe pas encore). Retirer la ligne après les essais.
+Le déploiement automatique, lui, joint le serveur par son adresse IP grâce à la variable `PROD_SITE_IP` (CICD.md).
 
 **Le jour de la bascule** (accès au domaine récupéré) :
 
-1. Chez le gestionnaire du domaine, faire pointer `i-dialogos.com` et `www` vers LWS (serveurs DNS de LWS,
-   ou enregistrements A vers l'adresse IP du serveur).
-2. Après la propagation (quelques heures), cPanel > **SSL/TLS Status** > lancer **AutoSSL** (certificat gratuit).
-3. Forcer le HTTPS (cPanel > Domaines > « Force HTTPS Redirect »).
-4. Mettre `COOKIE_SECURE=1` dans `~/idialogos-prod/shared/app.env`, puis redémarrer l'application
-   (Setup Python App > Restart).
+1. Chez le gestionnaire du domaine, faire pointer `i-dialogos.com` et `www` vers LWS (serveurs DNS de LWS, ou enregistrement A
+   vers `185.98.131.155`).
+2. Après la propagation (quelques heures), activer le certificat SSL gratuit dans l'espace client LWS.
+3. Ajouter `COOKIE_SECURE=1` dans `app.env` : `printf '%s\n' 'COOKIE_SECURE=1' >> ~/htdocs/.app/shared/app.env`.
+4. Dans GitHub, passer `PROD_SITE_URL` à `https://i-dialogos.com` et supprimer `PROD_SITE_IP`.
 
-## 5. Sauvegardes
+## 7. Sauvegardes et journal
 
-- Base : une sauvegarde est faite automatiquement avant chaque déploiement (`backups/`). En plus : phpMyAdmin > Exporter,
-  ou l'outil de sauvegarde de cPanel.
-- Images : `shared/uploads/` (les images ajoutées depuis l'administration y sont enregistrées). Elles ne sont pas dans Git :
-  les sauvegarder régulièrement (outil de sauvegarde cPanel).
-
-## Notes techniques
-
-- Les traductions automatiques lancées en arrière-plan peuvent s'interrompre quand Passenger met l'application
-  en veille (après quelques minutes sans visite). Elles reprennent à la visite suivante ; le bouton
-  « Traduire tous les contenus maintenant » (Administration > Langues) permet de tout préparer d'un coup.
-- Le service de traduction par défaut (Google, non officiel) peut être bloqué depuis un serveur mutualisé :
-  DeepL (`DEEPL_API_KEY` dans `app.env`) est plus fiable en production.
-- Pour lancer le site localement avec MySQL au lieu de PostgreSQL :
-  `$env:DATABASE_URL = "mysql://utilisateur:mot_de_passe@localhost:3306/idialogos"; python server.py`.
+- Base : une sauvegarde est faite avant chaque déploiement dans `htdocs/.app/backups/` (les 10 dernières sont gardées).
+  Pour restaurer : télécharger le fichier `.sql.gz` (FTP), le décompresser (7-Zip), puis l'exécuter dans PhpPgAdmin (SQL).
+  Les sauvegardes quotidiennes de LWS restent disponibles en plus.
+- Images : `htdocs/uploads/`, à sauvegarder régulièrement (FTP, ou depuis PowerShell : `cmd /c "ssh i-dia2811273@185.98.131.155 tar -cf - -C htdocs uploads > uploads.tar"`).
+- Historique des mises en ligne : `htdocs/.app/deploy.log`.
