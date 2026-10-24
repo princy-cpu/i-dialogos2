@@ -30,36 +30,184 @@
   </header>
 
   <main>
+    <!-- 1 – Accueil -->
     <section class="home-layout" aria-label="À la une">
       <div class="featured-column">
         <div id="database-featured-article"></div>
         <aside class="event-box"><h2>Actualités / Événements</h2><div id="database-news-events"></div><a href="/actualites" class="outline-link">Voir toutes les actualités et événements</a></aside>
       </div>
-      <aside class="analysis-column" id="analyses"><h2 class="analysis-heading">Analyses <span></span></h2><div id="database-analysis-articles"></div></aside>
+      <aside class="analysis-column" id="analyses"><h2 class="analysis-heading">Analyses <span></span></h2><div class="analysis-scroll"><div id="database-analysis-articles"></div></div></aside>
       <form class="quick-newsletter" id="quick-newsletter"><label for="quick-email">Recevoir l’InfoLettre</label><input id="quick-email" type="email" placeholder="✉  Entrer votre email" required><button type="submit">Pour s’abonner</button><span class="quick-message" aria-live="polite"></span></form>
     </section>
 
+    <div id="database-explore-themes"></div>
+
+    <!-- 2 – Le réseau -->
+    <section class="mk-network" id="reseau">
+      <h2 class="mk-network-title">Le réseau I-Dialogos dans le monde</h2>
+      <p class="mk-network-intro">Présents sur tous les continents, les abonnés, correspondants et partenaires d’I-Dialogos font vivre un dialogue transnational, nourri par la diversité de leurs parcours, de leurs expériences et de leurs analyses. Fondé sur l’écoute, le respect des opinions différentes et la valorisation des expertises de chacun, ce réseau constitue le principal atout d’I-Dialogos.</p>
+      <div class="mk-map">
+        <ul class="mk-country-list" aria-label="Pays et villes du réseau">
+          <li><details><summary>Montreuil</summary><p>Coordination I-Dialogos : présentation à venir.</p></details></li>
+          <li><details><summary>Marseille</summary><p>Coordination I-Dialogos : présentation à venir.</p></details></li>
+          <li><details><summary>Algérie</summary><p>Coordination I-Dialogos : présentation à venir.</p></details></li>
+          <li><details><summary>Bénin</summary><p>Coordination I-Dialogos : présentation à venir.</p></details></li>
+          <li><details><summary>Burkina Faso</summary><p>Coordination I-Dialogos : présentation à venir.</p></details></li>
+          <li><details><summary>Burundi</summary><p>Coordination I-Dialogos : présentation à venir.</p></details></li>
+          <li><details><summary>Cameroun Douala</summary><p>Coordination I-Dialogos : présentation à venir.</p></details></li>
+          <li><details><summary>République centrafricaine</summary><p>Coordination I-Dialogos : présentation à venir.</p></details></li>
+          <li><details><summary>Comores</summary><p>Coordination I-Dialogos : présentation à venir.</p></details></li>
+          <li><details><summary>République du Congo</summary><p>Coordination I-Dialogos : présentation à venir.</p></details></li>
+          <li><details><summary>République démocratique du Congo</summary><p>Coordination I-Dialogos : présentation à venir.</p></details></li>
+          <li><details><summary>Ghana</summary><p>Coordination I-Dialogos : présentation à venir.</p></details></li>
+          <li><details><summary>Côte d’Ivoire</summary><p>Coordination I-Dialogos : présentation à venir.</p></details></li>
+          <li><details><summary>Madagascar</summary><p>Coordination I-Dialogos : présentation à venir.</p></details></li>
+          <li><details><summary>Mali</summary><p>Coordination I-Dialogos : présentation à venir.</p></details></li>
+          <li><details><summary>Niger</summary><p>Coordination I-Dialogos : présentation à venir.</p></details></li>
+        </ul>
+        <img src="assets/world-network.webp" alt="Carte du réseau I-Dialogos : membres présents sur tous les continents" loading="lazy">
+      </div>
+      <p class="mk-note">Prochaine présentation en déroulé et clic par pays des coordinateurs I-Dialogos pays / I-Dialogos Network Coordinators in each country</p>
+    </section>
+
+    <!-- 3 – À propos -->
+    <section class="mk-about" id="apropos">
+      <div class="mk-about-main">
+        <h2 class="mk-about-title"><span>À propos</span>Promouvoir<br>le dialogue géopolitique.</h2>
+        <p>I-Dialogos entend contribuer à un vrai dialogue transnational, ouvert et pluraliste sur les grands enjeux géopolitiques contemporains, en croisant les regards, les expériences et les expertises issus de différents pays et cultures.</p>
+        <p>L’exigence de dialogue fait la force de la diplomatie, quand elle est subtile et à l’écoute, à la différence des approches strictement militaires, généralement limitées dans le temps et dont l’actualité souligne quotidiennement les limites…</p>
+        <a class="mk-about-button" href="#gouvernance">Voir plus</a>
+      </div>
+      <div class="mk-about-notes">
+        <img src="assets/averroes.webp" alt="Citation d’Averroès (UNESCO) : « L’ignorance mène à la peur, la peur mène à la haine et la haine conduit à la violence. Voilà l’équation. »" loading="lazy">
+        <h3>Les Notes d’I-Dialogos</h3>
+        <p>Les Notes d’I-Dialogos rassemblent des travaux, analyses et propositions consacrés à nos thématiques prioritaires : démocraties, médias, francophonie, santé, eau et environnement, relations internationales…</p>
+        <a class="mk-about-button" href="#articles">Voir plus</a>
+      </div>
+    </section>
+
+    <!-- 4 – La gouvernance -->
+    <section class="mk-governance" id="gouvernance">
+      <article>
+        <img src="assets/gov-coordinators.webp" alt="I-Dialogos Country Coordinators" loading="lazy">
+        <p>Dans le cadre de ce Réseau international, les Coordinateurs géographiques contribuent dans chaque pays au dialogue transnational en partageant les regards, les expériences et les analyses de leurs pays et territoires. Ils sont étroitement associés au fonctionnement de I-Dialogos.</p>
+        <a class="mk-governance-button" href="#reseau">Voir plus</a>
+      </article>
+      <article>
+        <img src="assets/gov-pilotage.webp" alt="Le Comité de Pilotage I-Dialogos" loading="lazy">
+        <h3>Le Comité de pilotage</h3>
+        <p>Le Comité de pilotage d’I-Dialogos réunit 19 membres issus de 16 pays et de plusieurs continents. Il est l’instance de gouvernance par délégation de l’Assemblée Générale.</p>
+        <a class="mk-governance-button" href="#experts">Voir plus</a>
+      </article>
+      <article>
+        <img src="assets/gov-scientifique.webp" alt="Le Comité scientifique" loading="lazy">
+        <p>Instance consultative, le Comité scientifique international, dont la composition est évolutive, éclaire les orientations d’I-Dialogos et formule des propositions sur ses priorités de réflexion. Il exerce également un rôle de conseil dans la présentation des Notes d’I-Dialogos, en veillant à la diversité des regards.</p>
+        <a class="mk-governance-button" href="#experts">Voir plus</a>
+      </article>
+    </section>
+
+    <!-- 6 – L’invitée de la semaine -->
+    <section class="mk-page" id="invitee">
+      <p class="mk-ribbon">Peuples et citoyens du monde</p>
+      <h2 class="mk-page-title">L’Invité/e de la semaine</h2>
+      <div class="mk-split">
+        <img src="assets/oumou-sall-seck.webp" alt="Portrait d’Oumou Sall Seck" loading="lazy">
+        <div>
+          <h3 class="mk-guest-name">Oumou Sall Seck <span class="mk-flag-mali" role="img" aria-label="Mali"></span></h3>
+          <p>Première femme élue dans une région du Nord-Mali, Oumou Sall Seck a reçu en 2008 le Prix international des droits humains <em>« Pool Lauritzen »</em>, ainsi que le <em>Trophée d’initiative</em> décerné par le président-directeur général du groupe Airness. Elle a ensuite reçu, en 2010, le prix <em>« Women in Excellence »</em> puis, en 2016 à Agadez, au Niger, le prestigieux <em>Prix international de la Fondation Mano Dayak</em>. Jusqu’en mai 2023, elle a été ambassadrice du Mali à Berlin et auprès de plusieurs pays du nord de l’Union européenne.</p>
+          <p>Cofondatrice et ancienne coprésidente d’I-Dialogos, Oumou Sall Seck se consacre désormais à ses fonctions de ministre de l’Entrepreneuriat national, de l’Emploi et de la Formation professionnelle.</p>
+        </div>
+      </div>
+      <a class="mk-more" href="#analyses">Voir plus d’informations<br>L’Invité/e de la semaine</a>
+    </section>
+
+    <!-- 7 à 13 – Thématiques -->
+    <section class="mk-themes" id="thematiques">
+      <p class="mk-ribbon">Peuples et citoyens du monde</p>
+      <div id="database-theme-blocks"></div>
+    </section>
+
+    <!-- Les Notes d’I-Dialogos -->
     <section class="section article-feed" id="articles"><div class="feed-head"><div class="section-heading"><span class="eyebrow">Les Notes d’I-Dialogos</span><h2>Analyses et articles</h2><p>Des idées, des analyses et des propositions portées par notre réseau.</p></div><a class="compose-button" href="#atelier">+ Publier un article</a></div><div class="public-filter-row"><label>Thème <select id="public-theme-filter"><option value="">Tous les thèmes</option></select></label><label>Tag <select id="public-tag-filter"><option value="">Tous les tags</option></select></label><span id="public-article-count"></span></div><div class="public-article-grid" id="public-feed"></div></section>
 
     <section class="section editorial-workspace" id="atelier"><div class="workspace-heading"><div><span class="eyebrow">Administration locale</span><h2>Atelier éditorial</h2><p>Rédigez, classez et publiez les articles d’I-Dialogos. Vos contenus sont enregistrés sur cet appareil.</p></div><div class="workspace-actions"><button class="compose-button" id="compose-open">+ Nouvel article</button><button class="taxonomy-button" id="taxonomy-open">Gérer thèmes et tags</button></div></div><div class="editor-stats"><div><span id="stat-published">0</span><small>Articles publiés</small></div><div><span id="stat-drafts">0</span><small>Brouillons</small></div><div><span id="stat-themes">0</span><small>Thèmes</small></div><div><span id="stat-tags">0</span><small>Tags</small></div></div><div class="editor-toolbar"><label class="editor-search">⌕ <input id="admin-search" type="search" placeholder="Rechercher dans vos articles"></label><select id="admin-status-filter" aria-label="Filtrer par statut"><option value="all">Tous les statuts</option><option value="published">Publiés</option><option value="draft">Brouillons</option></select><select id="admin-theme-filter" aria-label="Filtrer par thème"><option value="">Tous les thèmes</option></select></div><div id="admin-article-list" class="admin-article-list"></div></section>
 
-    <section class="section themes-section" id="thematiques"><div class="section-heading"><span class="eyebrow">Nos thématiques</span><h2>Les sujets qui traversent<br>nos sociétés.</h2><p>I-Dialogos croise les regards et les expertises sur les mutations du monde.</p></div><div class="theme-grid" id="theme-grid"></div></section>
+    <!-- 14 – Experts -->
+    <section class="mk-experts" id="experts">
+      <div class="mk-experts-head">
+        <h2>Experts</h2>
+        <p>I-Dialogos réunit des experts de premier plan issus de tous milieux professionnels et universitaires du monde entier, qui fournissent des recherches, des recommandations et des analyses, le plus souvent croisées, sur un large éventail de questions de géopolitiques et autour des priorités retenues chaque année en Assemblée générale.</p>
+      </div>
+      <div class="mk-expert-filters">
+        <a href="#expert-list">Langues de communication</a>
+        <a href="#expert-list">Par pays</a>
+        <a href="#expert-list">Par domaine d’expertise</a>
+      </div>
+      <div class="mk-expert-carousel" id="expert-list" aria-label="Experts du réseau I-Dialogos">
+        <div class="mk-expert-track">
+          <article><img src="assets/expert-giliberti.webp" alt="" loading="lazy"><div><h3>Giuseppe GILIBERTI</h3><p>Co-directeur, avec Luigi GRAVAGNUOLO, du « LAB Politiche e Culture », Bologne, Italie</p></div></article>
+          <article><img src="assets/expert-tran.webp" alt="" loading="lazy"><div><h3>TRAN THU DUNG</h3><p>Membre du Comité de pilotage I-Dialogos</p></div></article>
+          <article><img src="assets/expert-araujo.webp" alt="" loading="lazy"><div><h3>Luiz Henrique Diniz ARAUJO</h3><p>Procureur fédéral, Recife, Brésil</p><p>Expert constitutionnaliste</p></div></article>
+          <article><img src="assets/expert-soppelsa.webp" alt="" loading="lazy"><div><h3>Jacques SOPPELSA</h3><p>Ancien Président de l’Université Panthéon-Sorbonne</p></div></article>
+        </div>
+      </div>
+    </section>
 
-    <section class="section network-section" id="reseau"><div class="network-heading"><div><span class="eyebrow">Un réseau transnational</span><h2>Le réseau I-Dialogos<br>dans le monde</h2></div><p>Présents sur tous les continents, les abonnés, correspondants et partenaires d’I-Dialogos font vivre un dialogue transnational, nourri par la diversité de leurs parcours, de leurs expériences et de leurs analyses. Fondé sur l’écoute, le respect des opinions différentes et la valorisation des expertises de chacun, ce réseau constitue le principal atout d’I-Dialogos.</p></div><div class="world-map"><div class="country-list" id="country-list"></div><img src="assets/world-network.webp" alt="Carte du réseau international I-Dialogos avec des membres présents sur plusieurs continents"></div><p class="map-note">Présentation en déroulé et clic par pays des coordinateurs I-Dialogos / I-Dialogos Network Coordinators in each country</p></section>
+    <!-- 15 – Soutiens et partenaires -->
+    <section class="mk-page mk-partners" id="partenaires">
+      <p class="mk-ribbon mk-ribbon-caps">Peuples et citoyens du monde</p>
+      <h2 class="mk-partners-title">Nos soutiens et partenaires</h2>
+      <p class="mk-partners-intro">Un réseau international au service de l’excellence francophone</p>
+      <ul class="mk-partner-grid">
+        <li><img src="assets/partners/senghor.webp" alt="" loading="lazy"><span>Université Senghor</span></li>
+        <li><img src="assets/partners/observatoire-plurilinguisme.webp" alt="" loading="lazy"><span>Observatoire européen du plurilinguisme</span></li>
+        <li><img src="assets/partners/indp.webp" alt="" loading="lazy"><span>INDP</span></li>
+        <li><img src="assets/partners/lab-politiche-cultura.webp" alt="" loading="lazy"><span>LAB Politique et Culture</span></li>
+        <li><img src="assets/partners/agora-francophone.webp" alt="" loading="lazy"><span>Agora francophone</span></li>
+        <li><img src="assets/partners/blick.webp" alt="" loading="lazy"><span>Blick</span></li>
+        <li><img src="assets/partners/monde-diplomatique.webp" alt="" loading="lazy"><span>Le Monde diplomatique</span></li>
+        <li><img src="assets/partners/globe-reporters.webp" alt="" loading="lazy"><span>Globe Reporters</span></li>
+        <li><img src="assets/partners/rimf.webp" alt="" loading="lazy"><span>RIMF</span></li>
+        <li><img src="assets/partners/afrinfo.webp" alt="" loading="lazy"><span>Afrinfo</span></li>
+        <li><img src="assets/partners/acteurs-publics.webp" alt="" loading="lazy"><span>Acteurs publics</span></li>
+        <li><img src="assets/partners/pressenza.webp" alt="" loading="lazy"><span>Pressenza</span></li>
+        <li><img src="assets/partners/codofil.webp" alt="" loading="lazy"><span>CODOFIL</span></li>
+        <li><img src="assets/partners/ceripp.webp" alt="" loading="lazy"><span>CERIPP</span></li>
+        <li><img src="assets/partners/kiip.webp" alt="" loading="lazy"><span>KIIP</span></li>
+        <li><img src="assets/partners/mandala.webp" alt="" loading="lazy"><span>Mandala</span></li>
+        <li><img src="assets/partners/fraternite-afrique.webp" alt="" loading="lazy"><span>Fraternité Afrique</span></li>
+        <li><img src="assets/partners/albert-londres.webp" alt="" loading="lazy"><span>Sur les pas d’Albert Londres</span></li>
+        <li><img src="assets/partners/idees-afrique.webp" alt="" loading="lazy"><span>Idées Afrique</span></li>
+        <li><img src="assets/partners/i2m.webp" alt="" loading="lazy"><span>i2m</span></li>
+        <li><img src="assets/partners/cosmopolis.webp" alt="" loading="lazy"><span>Cosmopolis</span></li>
+        <li><img src="assets/partners/acadian-museum.webp" alt="" loading="lazy"><span>The Acadian Museum</span></li>
+        <li><img src="assets/partners/cuba-cooperation.webp" alt="" loading="lazy"><span>Cuba Coopération France</span></li>
+        <li><img src="assets/partners/feram.webp" alt="" loading="lazy"><span>FERAM</span></li>
+        <li><img src="assets/partners/afal.webp" alt="" loading="lazy"><span>AFAL</span></li>
+      </ul>
+    </section>
 
-    <section class="section about-section" id="apropos"><div class="about-blue"><div class="about-main"><span class="eyebrow">À propos</span><h2>Promouvoir<br>le dialogue géopolitique.</h2><p>I-Dialogos entend contribuer à un vrai dialogue transnational, ouvert et pluraliste sur les grands enjeux géopolitiques contemporains, en croisant les regards, les expériences et les expertises issus de différents pays et cultures.</p><p>L’exigence de dialogue fait la force de la diplomatie, quand elle est subtile et à l’écoute, à la différence des approches strictement militaires, généralement limitées dans le temps et dont l’actualité souligne quotidiennement les limites.</p><a class="blue-button" href="#articles">Voir plus sur I-Dialogos</a></div><div class="notes-promo"><div class="quote-medallion"><span>UNESCO</span><b>«</b><p>L’ignorance mène à la peur, la peur mène à la haine et la haine conduit à la violence. Voilà l’équation.</p><small>— Averroès</small></div><h3>Les Notes d’I-Dialogos</h3><p>Les Notes d’I-Dialogos rassemblent des travaux, analyses et propositions consacrés à nos thématiques prioritaires : démocraties, médias, francophonie, santé, eau et environnement, relations internationales…</p><a class="blue-button" href="#articles">Voir les Notes</a></div></div></section>
+    <!-- 16 – Grandes inspirations -->
+    <section class="mk-page" id="inspirations">
+      <p class="mk-ribbon mk-ribbon-plain">Le dialogue entre les cultures</p>
+      <h2 class="mk-page-title">Nos grandes inspirations</h2>
+      <div class="mk-split">
+        <img src="assets/inspirations-figures.webp" alt="Portraits de Léopold Sédar Senghor et de François Jullien" loading="lazy">
+        <div>
+          <h3>Deux figures du dialogue</h3>
+          <p><strong>Léopold Sédar Senghor,</strong> poète et penseur de la rencontre entre les cultures fondée sur le dialogue.</p>
+          <p><strong>François Jullien,</strong> philosophe du dialogue entre les pensées européenne et chinoise.</p>
+          <a class="mk-more" href="#apropos">Voir plus</a>
+        </div>
+      </div>
+    </section>
 
-    <section class="section governance-section" id="gouvernance"><div class="section-heading"><span class="eyebrow">Une gouvernance collégiale</span><h2>Le dialogue s’organise<br>dans la durée.</h2><p>Une organisation internationale au service du dialogue transnational.</p></div><div class="governance-grid"><article><span class="governance-icon">01</span><h3>Coordinateurs pays</h3><p>Dans chaque pays, les coordinateurs géographiques contribuent au dialogue en partageant les regards, les expériences et les analyses de leurs territoires.</p><a href="#reseau">Voir le réseau →</a></article><article><span class="governance-icon">02</span><h3>Comité de pilotage</h3><p>Le Comité de pilotage réunit des membres issus de plusieurs pays et continents. Il est l’instance de gouvernance par délégation de l’Assemblée générale.</p><a href="#experts">Découvrir l’équipe →</a></article><article><span class="governance-icon">03</span><h3>Comité scientifique</h3><p>Instance consultative internationale, le Comité scientifique éclaire les orientations d’I-Dialogos et formule des propositions sur les priorités de réflexion.</p><a href="#experts">En savoir plus →</a></article></div></section>
-
-    <section class="section guest-section" id="invitee"><div class="guest-image"><img src="assets/oumou-sall-seck.webp" alt="Portrait d’Oumou Sall Seck"><span>L’invitée de la semaine</span></div><div><span class="eyebrow">Rencontre</span><h2>Oumou Sall Seck</h2><p>Première femme élue dans une région du Nord-Mali, Oumou Sall Seck a reçu plusieurs distinctions internationales pour son engagement en faveur des droits humains et de la paix. Cofondatrice et ancienne présidente d’I-Dialogos, elle est ministre de l’Entrepreneuriat national, de l’Emploi et de la Formation professionnelle.</p><a class="text-link" href="#analyses">Découvrir son parcours <span>→</span></a></div></section>
-
-    <section class="section experts-section" id="experts"><div class="experts-intro"><div><span class="eyebrow">Le réseau d’experts</span><h2>Des expertises<br>venues du monde entier.</h2></div><p>I-Dialogos réunit des experts de premier plan issus de tous milieux professionnels et universitaires. Leurs recherches, recommandations et analyses croisent un large éventail de questions géopolitiques et de priorités retenues chaque année en Assemblée générale.</p></div><div class="expert-filters"><a href="#expert-list">→&nbsp; Langues de communication</a><a href="#expert-list">→&nbsp; Par pays</a><a href="#expert-list">→&nbsp; Par domaine d’expertise</a></div><div class="expert-strip" id="expert-list"><img src="assets/expert-portraits.webp" alt="Portraits des membres et experts du réseau I-Dialogos"><div class="expert-names"><span>Giuseppe Giliberti <small>Co-directeur, LAB Politiche e Culture · Bologne, Italie</small></span><span>Tran Thu Dung <small>Membre du Comité de pilotage I-Dialogos</small></span><span>Luiz Henrique Diniz Araujo <small>Procureur fédéral, Recife, Brésil</small></span><span>Jacques Soppelsa <small>Ancien président de l’Université Panthéon-Sorbonne</small></span></div></div></section>
-
-    <section class="section partners-section" id="partenaires"><div class="section-heading"><span class="eyebrow">Ensemble</span><h2>Nos soutiens et partenaires</h2><p>Un réseau international au service de l’excellence francophone.</p></div><img src="assets/partners.webp" alt="Logos des partenaires et soutiens d’I-Dialogos" loading="lazy"></section>
-
-    <section class="section inspirations-section" id="inspirations"><div class="inspiration-image"><img src="assets/inspirations.webp" alt="Portraits de Léopold Sédar Senghor et de François Jullien" loading="lazy"></div><div><span class="eyebrow">Le dialogue entre les cultures</span><h2>Nos grandes inspirations</h2><h3>Deux figures du dialogue</h3><p><strong>Léopold Sédar Senghor</strong>, poète et penseur de la rencontre entre les cultures fondée sur le dialogue.</p><p><strong>François Jullien</strong>, philosophe du dialogue entre les pensées européenne et chinoise.</p><a class="text-link" href="#apropos">Voir plus <span>→</span></a></div></section>
-
-    <section class="newsletter-section" id="infolettre"><span class="eyebrow">La lettre I-Dialogos</span><h2>Recevez les dernières informations de I-Dialogos</h2><form id="newsletter-form"><input type="email" name="email" placeholder="Adresse email" aria-label="Adresse email" required><button type="submit" aria-label="S’abonner">→</button></form><p class="newsletter-message" aria-live="polite"></p><a class="social-link" href="https://www.linkedin.com/" target="_blank" rel="noopener" aria-label="Suivre I-Dialogos sur LinkedIn">in</a></section>
+    <!-- 17 – Clôture -->
+    <section class="mk-closing" id="infolettre">
+      <h2>Recevez les dernières informations de I-Dialogos</h2>
+      <form id="newsletter-form"><input type="email" name="email" placeholder="Adresse email" aria-label="Adresse email" required><button type="submit" aria-label="S’abonner">→</button><span class="newsletter-message" aria-live="polite"></span></form>
+      <div class="mk-closing-social"><a href="https://www.linkedin.com/" target="_blank" rel="noopener" aria-label="Suivre I-Dialogos sur LinkedIn">in</a></div>
+    </section>
   </main>
 
   <footer id="soutiens"><div><a class="logo footer-logo" href="#accueil"><span class="logo-i">I</span><span class="logo-dash">-</span><span class="logo-d">D</span>ialog<span class="logo-o">o</span>s<small>think tank</small></a><p>Un espace transnational de dialogue<br>pour comprendre les mutations du monde.</p></div><nav><a href="#apropos">À propos</a><a href="#thematiques">Thématiques</a><a href="#reseau">Régions</a><a href="#articles">Les Notes</a><a href="#experts">Experts</a><a href="#partenaires">Partenaires</a><a href="mailto:contact@i-dialogos.com">Contact</a></nav><p class="copyright">© I-Dialogos · Peuples et citoyens du monde</p><a href="#accueil" class="back-top">Retour en haut ↑</a></footer>

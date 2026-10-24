@@ -156,6 +156,47 @@ def resolve_language(db: Database, requested: str, *texts: str) -> str:
     return detect_language('\n'.join(texts)) or default_language(db)
 
 
+# Thématiques, dans l'ordre et avec les textes des maquettes 7 à 13 (dossier « PAGES Site 13.10.26 »).
+# Chaque thématique regroupe les articles publiés de la catégorie dont le slug est indiqué.
+THEMES = [
+    {'id': 'medias', 'title': 'Médias et pluralisme', 'question': '', 'text': 'Dans un Monde en pleine mutation et aux enjeux considérables pour l’avenir de l’Humanité, comment garantir une information « responsable », qui soit une information libre, indépendante, qualitative, humaine et respectueuse du pluralisme ?', 'text2': '', 'signature': '', 'button': 'Médias et pluralisme', 'image': 'media-pluralism.webp', 'category': 'medias-et-pluralisme'},
+    {'id': 'francophonies', 'title': 'Francophonies', 'question': 'Quelle(s) Francophonie(s) pour demain ?', 'text': 'I-Dialogos entend contribuer, dans le cadre d’une approche transnationale, à une Francophonie renouvelée, moins institutionnelle et davantage ouverte aux sociétés civiles, aux territoires et aux jeunes générations. Une Francophonie plurielle, attentive à la diversité des cultures et des langues, favorisant la circulation des idées et un dialogue équilibré entre les peuples.', 'text2': '', 'signature': 'Jean-Claude Mairal', 'button': 'Francophonie', 'image': 'francophonie.webp', 'category': 'francophonies'},
+    {'id': 'democraties', 'title': 'Démocraties', 'question': 'Quelles démocraties ?', 'text': 'À partir des expériences existantes, I-Dialogos explore, dans le cadre d’une approche transnationale croisée, les voies d’une démocratie à plusieurs niveaux, adaptée à chaque société.', 'text2': 'Dialogue et écoute sont essentiels pour en préserver l’esprit et prévenir les dérives autoritaires ou impérialistes.', 'signature': '', 'button': 'Quelles démocraties ?', 'image': 'democracies.webp', 'category': 'democraties'},
+    {'id': 'ia', 'title': 'IA – Intelligence artificielle', 'question': 'Quelle intelligence artificielle, pour quelle société ?', 'text': 'Comment mettre l’intelligence artificielle au service de l’humain, sans renforcer les inégalités, les dépendances technologiques ni les manipulations de l’information ?', 'text2': 'I-Dialogos propose de croiser les regards sur ses usages et ses effets sur le travail, l’éducation, la culture et la démocratie, en interrogeant la place des langues, la diversité des savoirs et la responsabilité des acteurs.', 'signature': '', 'button': 'Intelligence artificielle', 'image': 'artificial-intelligence.webp', 'category': 'ia-intelligence-artificielle'},
+    {'id': 'jeunesse', 'title': 'Jeunesse', 'question': 'Les jeunes, acteurs des mutations du monde', 'text': 'Comment permettre aux jeunes, dans la diversité de leurs cultures et de leurs parcours, de faire entendre leur voix et de participer aux décisions qui engagent leur avenir ?', 'text2': 'I-Dialogos souhaite ouvrir un espace de dialogue entre jeunes de différents pays et entre générations, autour de l’éducation, de l’emploi, de la culture, du numérique, de l’environnement et de la paix.', 'signature': '', 'button': 'Jeunesse', 'image': 'youth.webp', 'category': 'jeunesse'},
+    {'id': 'ultramarins', 'title': 'Ultramarins', 'question': 'Territoires ultramarins : au cœur du dialogue géopolitique', 'text': 'Longtemps considérés comme périphériques, les territoires ultramarins occupent une place stratégique dans les équilibres géopolitiques, maritimes, environnementaux et culturels. À la rencontre de plusieurs mondes, ils constituent des espaces privilégiés de dialogue, de coopération régionale et de multilatéralisme.', 'text2': '', 'signature': '', 'button': 'Territoires ultramarins', 'image': 'ultramarins-map.webp', 'category': 'ultramarins'},
+    {'id': 'eau', 'title': 'Eau, climat et environnement', 'question': 'L’eau, une réalité territoriale', 'text': 'Face au dérèglement climatique, sa gestion exige une gouvernance démocratique et partagée, associant États, territoires et sociétés civiles, au service de la coopération, de la paix et du développement durable.', 'text2': '', 'signature': 'Abdoulaye Sène', 'button': 'Eau, climat et environnement', 'image': 'water-environment.webp', 'category': 'eau-climat-et-environnement'},
+    {'id': 'geopolitique', 'title': 'Géopolitique', 'question': 'Comprendre un monde en mutation', 'text': 'Dans un monde marqué par de profondes recompositions, I-Dialogos propose une lecture pluraliste des équilibres internationaux. En croisant les regards issus de différents continents, le think tank défend le dialogue, le multilatéralisme et le rôle des Nations unies dans la recherche de solutions pacifiques et partagées.', 'text2': '', 'signature': '', 'button': 'Géopolitique', 'image': 'geopolitics.webp', 'category': 'geopolitique'},
+    {'id': 'sante', 'title': 'Santé et développement', 'question': 'Santé, territoires et coopérations', 'text': 'Une approche sociale, territoriale et internationale des politiques de santé, en lien avec la société civile et la démocratie.', 'text2': 'Une démarche comparative intégrant des conceptions adaptées du service public.', 'signature': '', 'button': 'Santé et développement', 'image': 'health.webp', 'category': 'sante-et-developpement'},
+]
+THEME_FIELDS = ('title', 'question', 'text', 'text2', 'button')
+THEME_ALIASES = {'international': 'geopolitique'}  # anciennes adresses
+# Sections fixes d'index.html traduites côté serveur (repères : commentaires HTML de la page).
+STATIC_SECTIONS = [('<!-- 2 – Le réseau -->', '<!-- 7 à 13 – Thématiques -->'), ('<!-- 14 – Experts -->', '  </main>')]
+
+MONTHS = {
+    'fr': 'janvier février mars avril mai juin juillet août septembre octobre novembre décembre'.split(),
+    'en': 'January February March April May June July August September October November December'.split(),
+    'es': 'enero febrero marzo abril mayo junio julio agosto septiembre octubre noviembre diciembre'.split(),
+    'it': 'gennaio febbraio marzo aprile maggio giugno luglio agosto settembre ottobre novembre dicembre'.split(),
+}
+
+
+def long_date(value: str, language: str) -> str:
+    """« 2026-10-09… » → « 9 octobre 2026 » dans la langue d'affichage."""
+    try:
+        moment = datetime.fromisoformat(value[:10])
+    except (TypeError, ValueError):
+        return value[:10] if value else ''
+    month = MONTHS.get(language, MONTHS['fr'])[moment.month - 1]
+    if language == 'en':
+        return f'{month} {moment.day}, {moment.year}'
+    if language == 'es':
+        return f'{moment.day} de {month} de {moment.year}'
+    day = '1er' if language == 'fr' and moment.day == 1 else str(moment.day)
+    return f'{day} {month} {moment.year}'
+
+
 PRETRANSLATE_LOCK = threading.Lock()
 
 
@@ -174,6 +215,7 @@ def pretranslate(article_ids: list[str] | None = None, event_ids: list[int] | No
                 translate_records(db, articles, target, ('title', 'excerpt'), ('body_html',))
                 translate_records(db, events, target, ('title', 'summary'), ('body_html',))
                 translate_records(db, terms, target, ('name',))
+                translate_records(db, [{**theme, 'language': 'fr'} for theme in THEMES], target, THEME_FIELDS)
                 db.connection.commit()
     except Exception as exc:
         print(f'Préparation des traductions interrompue : {exc}')
@@ -462,6 +504,8 @@ class AppHandler(BaseHTTPRequestHandler):
             return self.upload_file(path)
         if path.startswith('/article/'):
             return self.public_article(path.removeprefix('/article/'), parse_qs(parsed.query))
+        if path.startswith('/thematique/'):
+            return self.public_theme(path.removeprefix('/thematique/'))
         if path == '/actualites':
             return self.public_news_events()
         if path.startswith('/actualite/'):
@@ -651,6 +695,7 @@ class AppHandler(BaseHTTPRequestHandler):
             tag_links = db.execute('SELECT article_id,tag_id FROM article_tags WHERE article_id = ANY(?)', (ids,)).fetchall()
             articles = translate_records(db, articles, language, ('title', 'excerpt'))
             news_events = translate_records(db, news_events, language, ('title', 'summary'))
+            themes = self.localized_themes(db, language)
         categories_by_id = {row['id']: row for row in categories}
         tags_by_id = {row['id']: row for row in tags}
         article_cats: dict[str, list[dict]] = {}
@@ -668,7 +713,7 @@ class AppHandler(BaseHTTPRequestHandler):
         page = (ROOT / 'index.html').read_text(encoding='utf-8')
         featured = self.public_featured_article(articles[0]) if articles else '<div class="public-empty-featured" data-empty="articles"></div>'
         page = page.replace('<div id="database-featured-article"></div>', featured)
-        analysis_items = ''.join(self.public_analysis_article(article) for article in articles[1:5])
+        analysis_items = ''.join(self.public_analysis_article(article) for article in articles[1:])
         if not analysis_items:
             analysis_items = '<p class="public-empty-analysis" data-empty="articles"></p>'
         page = page.replace('<div id="database-analysis-articles"></div>', analysis_items)
@@ -680,17 +725,72 @@ class AppHandler(BaseHTTPRequestHandler):
         page = page.replace('id="public-theme-filter"><option value="">Tous les thèmes</option></select>', f'id="public-theme-filter">{theme_options}</select>')
         page = page.replace('id="public-tag-filter"><option value="">Tous les tags</option></select>', f'id="public-tag-filter">{tag_options}</select>')
         page = page.replace('<div class="public-article-grid" id="public-feed"></div>', feed)
+        page = page.replace('<div id="themes-menu"></div>', f'<div id="themes-menu">{self.theme_links(themes)}</div>')
+        if language != 'fr':
+            with connect() as db:
+                page = self.translate_static_sections(db, page, language)
+        page = page.replace('<div id="database-explore-themes"></div>', self.explore_themes(themes, 'Explorer nos thématiques'))
+        page = page.replace('<div id="database-theme-blocks"></div>', ''.join(self.theme_block(theme, f'/thematique/{quote(theme["id"])}') for theme in themes))
         self.send_body(page)
+
+    def translate_static_sections(self, db: Database, page: str, language: str) -> str:
+        """Traduit les sections fixes d'index.html (rédigées en français), entre leurs commentaires de repère."""
+        for start, end in STATIC_SECTIONS:
+            if start not in page or end not in page:
+                continue
+            head, rest = page.split(start, 1)
+            section, tail = rest.split(end, 1)
+            translated = translate_records(db, [{'language': 'fr', 'html': section}], language, (), ('html',))[0]
+            page = head + start + translated['html'] + end + tail
+        return page
+
+    def localized_themes(self, db: Database, language: str) -> list[dict]:
+        return translate_records(db, [{**theme, 'language': 'fr'} for theme in THEMES], language, THEME_FIELDS)
+
+    def theme_links(self, themes: list[dict], current: str = '') -> str:
+        return ''.join(f'<a href="/thematique/{quote(theme["id"])}" lang="{esc(content_lang(theme))}">{esc(theme["title"])}</a>' for theme in themes if theme['id'] != current)
+
+    def explore_themes(self, themes: list[dict], heading: str, current: str = '') -> str:
+        return f'<section class="morethemes" id="explorer-thematiques"><h2>{esc(heading)}</h2><div class="themegrid">{self.theme_links(themes, current)}</div></section>'
+
+    def theme_block(self, theme: dict, more_href: str, title_tag: str = 'h2') -> str:
+        """Bloc d'une thématique selon les maquettes 7 à 13 : image à gauche, question et texte à droite."""
+        question = f'<h3>{esc(theme["question"])}</h3>' if theme['question'] else ''
+        paragraphs = ''.join(f'<p>{esc(theme[key])}</p>' for key in ('text', 'text2') if theme[key])
+        signature = f'<p class="mk-signature">{esc(theme["signature"])}</p>' if theme['signature'] else ''
+        return f'''<article class="mk-theme" id="theme-{esc(theme['id'])}" lang="{esc(content_lang(theme))}"><{title_tag} class="mk-page-title">{esc(theme['title'])}</{title_tag}><div class="mk-split"><img src="/assets/{esc(theme['image'])}" alt="Illustration : {esc(theme['title'])}" loading="lazy"><div class="mk-theme-text">{question}{paragraphs}{signature}<a class="mk-more" href="{esc(more_href)}">Voir plus d’informations<br>{esc(theme['button'])}</a></div></div></article>'''
+
+    def public_theme(self, theme_id: str) -> None:
+        if theme_id in THEME_ALIASES:
+            return self.redirect(f'/thematique/{THEME_ALIASES[theme_id]}')
+        theme = next((item for item in THEMES if item['id'] == theme_id), None)
+        if not theme:
+            return self.send_body(self.site_page('Thématique introuvable', '<main class="article-page"><h1>Thématique introuvable</h1><a href="/#thematiques">Retour à l’accueil</a></main>'), 404)
+        with connect() as db:
+            language = self.selected_language(db)
+            themes = self.localized_themes(db, language)
+            articles = db.execute("SELECT articles.* FROM articles JOIN article_categories ON article_categories.article_id=articles.id JOIN categories ON categories.id=article_categories.category_id WHERE articles.status='published' AND categories.slug=? ORDER BY articles.published_at DESC, articles.created_at DESC", (theme['category'],)).fetchall()
+            taxonomy = {article['id']: self.get_article_taxonomy(db, article['id']) for article in articles}
+            all_cats = {row['id']: row for cats, _ in taxonomy.values() for row in cats}
+            all_tags = {row['id']: row for _, tags in taxonomy.values() for row in tags}
+            cats_by_id = {row['id']: row for row in self.localize_terms(db, list(all_cats.values()), language)}
+            tags_by_id = {row['id']: row for row in self.localize_terms(db, list(all_tags.values()), language)}
+            articles = translate_records(db, articles, language, ('title', 'excerpt'))
+        current = next(item for item in themes if item['id'] == theme_id)
+        cards = ''.join(self.public_card(article, [cats_by_id[row['id']] for row in taxonomy[article['id']][0]], [tags_by_id[row['id']] for row in taxonomy[article['id']][1]]) for article in articles)
+        listing = f'<div class="public-article-grid theme-articles">{cards}</div>' if cards else '<p class="theme-empty">Aucune publication pour cette thématique pour le moment.</p>'
+        body = f'''<p class="mk-ribbon">Peuples et citoyens du monde</p><header class="public-article-header"><a class="admin-brand" href="/">I<span>·</span>Dialogos</a><a href="/#thematiques">← Accueil</a></header><main class="article-page theme-page">{self.theme_block(current, '#theme-articles', 'h1')}<section id="theme-articles"><h2 class="theme-subtitle">Analyses et contributions</h2>{listing}<a class="theme-button" href="/#articles">Toutes les analyses →</a></section>{self.explore_themes(themes, 'Autres thématiques', theme_id)}</main>'''
+        self.send_body(self.site_page(current['title'], body))
 
     def public_featured_article(self, article: dict) -> str:
         image = f'<img class="featured-image" src="{esc(article["featured_image"])}" alt="Image mise en avant de {esc(article["title"])}">' if article['featured_image'] else '<span class="featured-image-placeholder">I·D</span>'
-        date = article['published_at'] or article['created_at']
-        return f'''<article class="featured-article" lang="{esc(content_lang(article))}"><a href="/article/{quote(article['slug'])}" class="image-link">{image}</a><h1><a href="/article/{quote(article['slug'])}">{esc(article['title'])}</a></h1><p>{esc(article['excerpt'])} <span class="featured-byline">{esc(article['author'])} · <time>{esc(date[:10])}</time></span></p></article>'''
+        date = long_date(article['published_at'] or article['created_at'], article.get('display_language', 'fr'))
+        return f'''<article class="featured-article" lang="{esc(content_lang(article))}"><a href="/article/{quote(article['slug'])}" class="image-link">{image}</a><h1><a href="/article/{quote(article['slug'])}">{esc(article['title'])}</a></h1><p class="featured-author">{esc(article['author'])}</p><p>{esc(article['excerpt'])} <time class="mk-date">{esc(date)}</time></p></article>'''
 
     def public_analysis_article(self, article: dict) -> str:
         image = f'<img src="{esc(article["featured_image"])}" alt="Image mise en avant de {esc(article["title"])}" loading="lazy">' if article['featured_image'] else '<span class="analysis-image-placeholder">I·D</span>'
-        date = article['published_at'] or article['created_at']
-        return f'''<article class="analysis-item" lang="{esc(content_lang(article))}">{image}<div><h3><a href="/article/{quote(article['slug'])}">{esc(article['title'])}</a></h3><p>{esc(article['excerpt'])}</p><time>{esc(date[:10])}</time></div></article>'''
+        date = long_date(article['published_at'] or article['created_at'], article.get('display_language', 'fr'))
+        return f'''<article class="analysis-item" lang="{esc(content_lang(article))}"><a href="/article/{quote(article['slug'])}" tabindex="-1">{image}</a><div><h3><a href="/article/{quote(article['slug'])}">{esc(article['title'])}</a> <span class="analysis-author">{esc(article['author'])}</span></h3><p>{esc(article['excerpt'])}</p><time class="mk-date">{esc(date)}</time></div></article>'''
 
     def public_news_event_card(self, item: dict) -> str:
         label = 'Événement' if item['kind'] == 'event' else 'Actualité'
