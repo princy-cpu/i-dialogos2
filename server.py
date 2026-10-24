@@ -203,6 +203,16 @@ def long_date(value: str, language: str) -> str:
 PRETRANSLATE_LOCK = threading.Lock()
 
 
+def static_sections() -> list[str]:
+    """Sections fixes d'index.html (en français) traduites côté serveur, entre leurs repères."""
+    page = (ROOT / 'index.html').read_text(encoding='utf-8')
+    sections = []
+    for start, end in STATIC_SECTIONS:
+        if start in page and end in page:
+            sections.append(page.split(start, 1)[1].split(end, 1)[0])
+    return sections
+
+
 def pretranslate(article_ids: list[str] | None = None, event_ids: list[int] | None = None) -> None:
     """Prépare en arrière-plan les traductions des contenus publiés dans toutes les langues actives."""
     if not PRETRANSLATE_LOCK.acquire(blocking=False):
@@ -214,7 +224,9 @@ def pretranslate(article_ids: list[str] | None = None, event_ids: list[int] | No
             articles = db.execute("SELECT * FROM articles WHERE status='published'" + (' AND id = ANY(?)' if article_ids is not None else ''), (article_ids,) if article_ids is not None else ()).fetchall()
             events = db.execute("SELECT * FROM news_events WHERE status='published'" + (' AND id = ANY(?)' if event_ids is not None else ''), (event_ids,) if event_ids is not None else ()).fetchall()
             terms = [{**row, 'language': source} for row in db.execute('SELECT name FROM categories UNION SELECT name FROM tags').fetchall()]
+            sections = [{'language': 'fr', 'html': html} for html in static_sections()] if article_ids is None and event_ids is None else []
             for target in targets:
+                translate_records(db, sections, target, (), ('html',))
                 translate_records(db, articles, target, ('title', 'excerpt'), ('body_html',))
                 translate_records(db, events, target, ('title', 'summary'), ('body_html',))
                 translate_records(db, terms, target, ('name',))
@@ -1297,6 +1309,8 @@ class MultiFields(dict):
 
 def run() -> None:
     initialize()
+    # Prépare les traductions manquantes (accueil, thématiques, publications) pour que le changement de langue soit immédiat.
+    pretranslate_in_background()
     host, port = '127.0.0.1', int(os.environ.get('PORT', '8000'))
     server = ThreadingHTTPServer((host, port), AppHandler)
     print(f'I-Dialogos est disponible sur http://{host}:{port}')

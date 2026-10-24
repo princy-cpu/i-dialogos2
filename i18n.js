@@ -114,7 +114,10 @@
       const url = new URL(location.href);
       url.searchParams.delete('lang');
       url.searchParams.delete('original');
-      location.href = url.toString();
+      // Si seule l'ancre (#thematiques…) est identique, le navigateur ne ferait que défiler : on force le rechargement.
+      const sameDocument = url.origin + url.pathname + url.search === location.origin + location.pathname + location.search;
+      if (sameDocument) location.reload();
+      else location.assign(url.toString());
     };
     select.addEventListener('change', () => choose(select.value));
     buildFlagSwitcher(select, languages, selected, choose);
