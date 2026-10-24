@@ -33,6 +33,9 @@ MAX_REQUEST = 12 * 1024 * 1024
 COOKIE_NAME = 'idialogos_session'
 SESSION_TTL = 12 * 60 * 60
 LOGIN_ATTEMPTS: dict[str, list[float]] = {}
+# Icône et polices communes aux pages générées (la page d'accueil les déclare dans index.html).
+FAVICON = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%231f6b3c'/%3E%3Ctext x='32' y='43' font-family='Arial' font-weight='700' font-size='28' text-anchor='middle' fill='white'%3EI%C2%B7D%3C/text%3E%3C/svg%3E"
+HEAD_ASSETS = f'<link rel="icon" href="{FAVICON}"><link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Playfair+Display:ital,wght@0,500;0,600;0,700;1,500&display=swap" rel="stylesheet">'
 
 
 def now_iso() -> str:
@@ -369,7 +372,7 @@ class AppHandler(BaseHTTPRequestHandler):
         self.send_header('X-Content-Type-Options', 'nosniff')
         self.send_header('X-Frame-Options', 'DENY')
         self.send_header('Referrer-Policy', 'same-origin')
-        self.send_header('Content-Security-Policy', "default-src 'self'; img-src 'self' https: data:; style-src 'self' 'unsafe-inline'; script-src 'self'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'")
+        self.send_header('Content-Security-Policy', "default-src 'self'; img-src 'self' https: data:; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; script-src 'self'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'")
         for key, value in headers or []:
             self.send_header(key, value)
         pending_cookie = getattr(self, '_new_cookie', None)
@@ -603,7 +606,7 @@ class AppHandler(BaseHTTPRequestHandler):
         self.send_body(candidate.read_bytes(), content_type=mimetypes.guess_type(candidate.name)[0] or 'application/octet-stream', headers=[('Cache-Control', 'public, max-age=86400')])
 
     def site_page(self, title: str, content: str) -> str:
-        return f'''<!doctype html><html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>{esc(title)} · I-Dialogos</title><link rel="stylesheet" href="/style.css"><link rel="stylesheet" href="/admin.css"></head><body>{content}<script src="/admin.js" defer></script></body></html>'''
+        return f'''<!doctype html><html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>{esc(title)} · I-Dialogos</title>{HEAD_ASSETS}<link rel="stylesheet" href="/style.css"><link rel="stylesheet" href="/admin.css"></head><body>{content}<script src="/admin.js" defer></script></body></html>'''
 
     def admin_page(self, title: str, content: str, active: str = '') -> str:
         session = self.auth()

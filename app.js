@@ -70,3 +70,96 @@ if (expertTrack && !matchMedia('(prefers-reduced-motion: reduce)').matches) {
   });
   expertTrack.classList.add('is-scrolling');
 }
+
+// === Dynamique de la page : en-tête condensé, progression, apparitions, compteurs, menu actif ===
+const reduceMotion = matchMedia('(prefers-reduced-motion: reduce)').matches;
+const siteHeader = document.querySelector('header#accueil');
+const progressBar = document.createElement('div');
+progressBar.className = 'scroll-progress';
+progressBar.setAttribute('aria-hidden', 'true');
+document.body.prepend(progressBar);
+const toTop = document.createElement('a');
+toTop.href = '#accueil';
+toTop.className = 'to-top';
+toTop.setAttribute('aria-label', 'Retour en haut');
+toTop.textContent = '↑';
+document.body.append(toTop);
+let scrollQueued = false;
+const updateOnScroll = () => {
+  scrollQueued = false;
+  const y = scrollY;
+  const max = document.documentElement.scrollHeight - innerHeight;
+  progressBar.style.setProperty('--progress', max > 0 ? (y / max).toFixed(4) : '0');
+  // Hystérésis : l'en-tête rétrécit, ce qui décale la page ; deux seuils évitent l'effet de clignotement.
+  if (siteHeader) {
+    if (y > 160) siteHeader.classList.add('is-condensed');
+    else if (y < 40) siteHeader.classList.remove('is-condensed');
+  }
+  toTop.classList.toggle('is-visible', y > 900);
+};
+addEventListener('scroll', () => {
+  if (!scrollQueued) {
+    scrollQueued = true;
+    requestAnimationFrame(updateOnScroll);
+  }
+}, { passive: true });
+updateOnScroll();
+
+if (!reduceMotion && 'IntersectionObserver' in window) {
+  // Apparition progressive des blocs, en cascade entre éléments voisins.
+  const revealSelector = '.featured-article, .event-box, .analysis-item, .morethemes h2, .themegrid a, .mk-network-title, .mk-network-intro, .mk-stats li, .mk-map, .mk-about-main, .mk-about-notes, .mk-governance article, .mk-page-title, .mk-split, #invitee > .mk-more, .section-heading, .public-article-card, .mk-experts-head, .mk-expert-filters a, .mk-partners-title, .mk-partner-grid li, .mk-closing h2, .mk-closing form';
+  document.documentElement.classList.add('js-reveal');
+  const revealObserver = new IntersectionObserver(entries => entries.forEach(entry => {
+    if (!entry.isIntersecting) return;
+    const element = entry.target;
+    revealObserver.unobserve(element);
+    element.classList.add('is-visible');
+    // Une fois l'animation finie, on rend la main aux effets de survol.
+    const delay = parseFloat(element.style.getPropertyValue('--reveal-delay')) || 0;
+    setTimeout(() => {
+      element.removeAttribute('data-reveal');
+      element.classList.remove('is-visible');
+      element.style.removeProperty('--reveal-delay');
+    }, 950 + delay);
+  }), { rootMargin: '0px 0px -8% 0px', threshold: 0.12 });
+  document.querySelectorAll(revealSelector).forEach(element => {
+    const siblings = [...element.parentElement.children].filter(child => child.matches(revealSelector));
+    element.style.setProperty('--reveal-delay', `${Math.min(siblings.indexOf(element), 7) * 70}ms`);
+    element.dataset.reveal = '';
+    revealObserver.observe(element);
+  });
+
+  // Compteurs animés (chiffres clés du réseau).
+  document.querySelectorAll('[data-count]').forEach(counter => {
+    const target = Number(counter.dataset.count);
+    counter.textContent = '0';
+    const counterObserver = new IntersectionObserver(entries => {
+      if (!entries[0].isIntersecting) return;
+      counterObserver.disconnect();
+      const start = performance.now();
+      const step = now => {
+        const progress = Math.min((now - start) / 1400, 1);
+        counter.textContent = String(Math.round(target * (1 - Math.pow(1 - progress, 3))));
+        if (progress < 1) requestAnimationFrame(step);
+      };
+      requestAnimationFrame(step);
+    }, { threshold: 0.6 });
+    counterObserver.observe(counter);
+  });
+}
+
+// Menu : lien de la section affichée à l'écran mis en évidence.
+if ('IntersectionObserver' in window) {
+  const navLinks = [...document.querySelectorAll('.head nav > a[href^="#"]')];
+  const sectionLinks = new Map(navLinks.map(link => [document.querySelector(link.getAttribute('href')), link]).filter(([section]) => section));
+  const spy = new IntersectionObserver(entries => entries.forEach(entry => {
+    const link = sectionLinks.get(entry.target);
+    if (entry.isIntersecting) {
+      navLinks.forEach(item => item.classList.remove('is-active'));
+      link.classList.add('is-active');
+    } else {
+      link.classList.remove('is-active');
+    }
+  }), { rootMargin: '-45% 0px -50% 0px' });
+  sectionLinks.forEach((_, section) => spy.observe(section));
+}
