@@ -9,6 +9,7 @@
 #   SSH_HOST, SSH_USER    serveur et identifiant SSH (ex. 185.98.131.155, i-dia2811273)
 #   SSH_PORT              facultatif (22 par défaut)
 #   SSH_KEY_FILE          facultatif : clé privée à utiliser
+#   SSH_PASSWORD          facultatif : mot de passe SSH, quand le serveur n'accepte pas de clé (offre LWS Starter)
 #   DEPLOY_PATH           dossier web dans le compte, ex. htdocs
 #   SITE_URL              adresse publique du site, ex. https://i-dialogos.com
 #   DEPLOY_TOKEN          jeton partagé avec le serveur (même valeur que dans .app/shared/app.env)
@@ -21,8 +22,19 @@ ACTION="${1:-deploy}"
 SSH_PORT="${SSH_PORT:-22}"
 SITE_URL="${SITE_URL%/}"
 HERE="$(cd "$(dirname "$0")" && pwd)"
-SSH_OPTS=(-p "$SSH_PORT" -o BatchMode=yes -o ConnectTimeout=20 -o ServerAliveInterval=15)
-if [ -n "${SSH_KEY_FILE:-}" ]; then SSH_OPTS+=(-i "$SSH_KEY_FILE"); fi
+SSH_OPTS=(-p "$SSH_PORT" -o ConnectTimeout=20 -o ServerAliveInterval=15)
+SSH=(ssh)
+if [ -n "${SSH_PASSWORD:-}" ]; then
+  # Connexion par mot de passe : sshpass le fournit à ssh sans qu'il apparaisse dans la ligne de commande.
+  command -v sshpass >/dev/null || { echo "sshpass est nécessaire pour la connexion par mot de passe." >&2; exit 1; }
+  export SSHPASS="$SSH_PASSWORD"
+  SSH=(sshpass -e ssh)
+  # shellcheck disable=SC2054 # la virgule fait partie de la valeur de l option
+  SSH_OPTS+=(-o PreferredAuthentications=password,keyboard-interactive -o PubkeyAuthentication=no -o NumberOfPasswordPrompts=1)
+else
+  SSH_OPTS+=(-o BatchMode=yes)
+  if [ -n "${SSH_KEY_FILE:-}" ]; then SSH_OPTS+=(-i "$SSH_KEY_FILE"); fi
+fi
 TARGET="$SSH_USER@$SSH_HOST"
 
 # Avant la bascule du domaine, les requêtes HTTP sont envoyées directement à l'adresse IP du serveur LWS.
@@ -36,7 +48,7 @@ fi
 
 remote() { # remote <script local> <arguments...> : exécute un script local sur le serveur
   local script="$1"; shift
-  ssh "${SSH_OPTS[@]}" "$TARGET" "KEEP_RELEASES='${KEEP_RELEASES:-5}' bash -s -- $(printf '%q ' "$@")" < "$script"
+  "${SSH[@]}" "${SSH_OPTS[@]}" "$TARGET" "KEEP_RELEASES='${KEEP_RELEASES:-5}' bash -s -- $(printf '%q ' "$@")" < "$script"
 }
 
 ops() { # ops <backup|migrate> [paramètres] : opération de déploiement exécutée par l'application elle-même
@@ -75,10 +87,17 @@ case "$ACTION" in
     echo "Archive : $(du -h "$ARCHIVE" | cut -f1) (commit $SHORT)"
     # Envoi par le canal SSH, décompressé à la réception (ni SFTP ni « cat » ne sont nécessaires sur le serveur).
     incoming="$DEPLOY_PATH/.app/releases/incoming-$SHORT"
-    ssh "${SSH_OPTS[@]}" "$TARGET" "rm -rf ~/$(printf '%q' "$incoming") && mkdir -p ~/$(printf '%q' "$incoming") && tar -xzf - -C ~/$(printf '%q' "$incoming")" < "$ARCHIVE"
+    if ! "${SSH[@]}" "${SSH_OPTS[@]}" "$TARGET" "rm -rf ~/$(printf '%q' "$incoming") && mkdir -p ~/$(printf '%q' "$incoming") && tar -xzf - -C ~/$(printf '%q' "$incoming")" < "$ARCHIVE"; then
+      echo "Envoi impossible : connexion SSH refusée (identifiant, mot de passe ou empreinte du serveur) ou dossier $DEPLOY_PATH absent. Le site n'a pas changé." >&2
+      exit 1
+    fi
     rm -f "$ARCHIVE"
 
-    prepared="$(remote "$HERE/remote_deploy.sh" prepare "$DEPLOY_PATH" "incoming-$SHORT" "$SHA")"
+    if ! prepared="$(remote "$HERE/remote_deploy.sh" prepare "$DEPLOY_PATH" "incoming-$SHORT" "$SHA")"; then
+      echo "$prepared" >&2
+      echo "Version refusée avant mise en ligne : le site n'a pas changé." >&2
+      exit 1
+    fi
     echo "$prepared"
     VERSION="${prepared##*VERSION=}"
 
