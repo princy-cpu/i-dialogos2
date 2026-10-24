@@ -21,15 +21,18 @@ Adaptez le nom d’utilisateur et le mot de passe à votre installation PostgreS
 
 Pour arrêter le serveur : `Ctrl+C`.
 
-## Importer les articles I-Dialogos
+## Importer les articles de l’ancien site I-Dialogos
 
-Après avoir configuré `DATABASE_URL`, lancer une fois :
+Après avoir configuré `DATABASE_URL` et installé les dépendances (`python -m pip install -r requirements.txt`, qui ajoute Pillow pour convertir les images), lancer :
 
 ```powershell
-python import_articles.py
+python import_site.py --limite 5   # essai sur 5 articles
+python import_site.py              # import complet (environ 235 articles, compter une heure)
 ```
 
-Le script ajoute les articles préparés depuis le site officiel, leurs résumés, catégories, étiquettes et images disponibles. Il ignore les doublons à chaque nouvelle exécution. Chaque article renvoie aussi vers sa publication originale.
+Le script lit les sitemaps de <https://www.i-dialogos.com> et importe chaque article complet : titre, chapô, texte avec sa mise en forme et ses liens, image principale et images du texte (téléchargées dans `uploads/` et converties en WebP), vidéos YouTube remplacées par un lien. La date vient de l’image principale (l’ancien site n’affiche pas de date), l’auteur est déduit du titre, la langue est détectée et la thématique est déduite de mots-clés : ces trois informations peuvent être corrigées dans l’administration. L’événement du site est importé dans « Actualités et événements », et les liens entre anciens articles pointent vers les nouvelles pages.
+
+Le script peut être relancé sans créer de doublons : un article déjà importé (même adresse d’origine) est mis à jour, et les images déjà téléchargées sont réutilisées (`uploads/.import-images.json`). Les résumés créés auparavant par `import_articles.py` sont remplacés par les articles complets. `python import_site.py --simulation` affiche ce qui serait importé sans rien écrire.
 
 ## Fonctions
 

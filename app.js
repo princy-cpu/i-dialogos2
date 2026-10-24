@@ -31,6 +31,8 @@ search?.addEventListener('submit', event => {
   const term = query.toLocaleLowerCase('fr');
   const cards = [...document.querySelectorAll('.public-article-card, .analysis-item, .mk-theme')];
   const matches = cards.filter(card => card.textContent.toLocaleLowerCase('fr').includes(term));
+  // Les articles trouvés au-delà des 12 premiers sont affichés.
+  matches.forEach(card => { if (card.classList.contains('public-article-card')) card.hidden = false; });
   document.querySelector('#search-feedback').textContent = term ? `${matches.length} résultat${matches.length === 1 ? '' : 's'} pour « ${term} ».` : 'Saisissez un mot-clé pour lancer la recherche.';
   if (matches[0]) matches[0].scrollIntoView({ behavior: 'smooth', block: 'center' });
 });
@@ -39,22 +41,38 @@ document.querySelector('#language-button')?.addEventListener('click', event => {
 });
 const categoryFilter = document.querySelector('#public-theme-filter');
 const tagFilter = document.querySelector('#public-tag-filter');
-function filterArticles() {
+// Les articles s'affichent par pages de 12 ; les filtres portent sur l'ensemble des articles.
+const PAGE_SIZE = 12;
+let shownArticles = PAGE_SIZE;
+const articleGrid = document.querySelector('#public-feed') || document.querySelector('.public-article-grid');
+const moreButton = document.createElement('button');
+moreButton.type = 'button';
+moreButton.className = 'theme-button more-articles';
+moreButton.textContent = 'Voir plus d’articles';
+moreButton.hidden = true;
+articleGrid?.after(moreButton);
+moreButton.addEventListener('click', () => {
+  shownArticles += PAGE_SIZE;
+  filterArticles(false);
+});
+function filterArticles(resetPage = true) {
+  if (resetPage) shownArticles = PAGE_SIZE;
   const category = categoryFilter?.value || '';
   const tag = tagFilter?.value || '';
-  let visible = 0;
+  let matching = 0;
   document.querySelectorAll('.public-article-card').forEach(card => {
     const categories = (card.dataset.categories || '').split(' ');
     const tags = (card.dataset.tags || '').split(' ');
-    const show = (!category || categories.includes(category)) && (!tag || tags.includes(tag));
-    card.hidden = !show;
-    if (show) visible++;
+    const matches = (!category || categories.includes(category)) && (!tag || tags.includes(tag));
+    if (matches) matching++;
+    card.hidden = !matches || matching > shownArticles;
   });
+  moreButton.hidden = matching <= shownArticles;
   const count = document.querySelector('#public-article-count');
-  if (count) count.textContent = `${visible} article${visible === 1 ? '' : 's'}`;
+  if (count) count.textContent = `${matching} article${matching === 1 ? '' : 's'}`;
 }
-categoryFilter?.addEventListener('change', filterArticles);
-tagFilter?.addEventListener('change', filterArticles);
+categoryFilter?.addEventListener('change', () => filterArticles());
+tagFilter?.addEventListener('change', () => filterArticles());
 const params = new URLSearchParams(location.search);
 if (categoryFilter && params.has('category')) categoryFilter.value = params.get('category');
 if (tagFilter && params.has('tag')) tagFilter.value = params.get('tag');

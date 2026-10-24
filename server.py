@@ -133,6 +133,9 @@ def initialize() -> None:
                 db.execute(statement)
         db.execute("ALTER TABLE articles ADD COLUMN IF NOT EXISTS language TEXT NOT NULL DEFAULT 'fr'")
         db.execute("ALTER TABLE news_events ADD COLUMN IF NOT EXISTS language TEXT NOT NULL DEFAULT 'fr'")
+        # Adresse d'origine des contenus importés de l'ancien site (évite les doublons à la réimportation).
+        db.execute("ALTER TABLE articles ADD COLUMN IF NOT EXISTS source_url TEXT NOT NULL DEFAULT ''")
+        db.execute("ALTER TABLE news_events ADD COLUMN IF NOT EXISTS source_url TEXT NOT NULL DEFAULT ''")
         for code, label, is_default in [('fr', 'Français', 1), ('en', 'English', 0), ('es', 'Español', 0), ('it', 'Italiano', 0)]:
             db.execute('INSERT OR IGNORE INTO languages(code,label,enabled,is_default) VALUES(?,?,1,?)', (code, label, is_default))
         defaults = [
@@ -225,12 +228,19 @@ def pretranslate(article_ids: list[str] | None = None, event_ids: list[int] | No
             events = db.execute("SELECT * FROM news_events WHERE status='published'" + (' AND id = ANY(?)' if event_ids is not None else ''), (event_ids,) if event_ids is not None else ()).fetchall()
             terms = [{**row, 'language': source} for row in db.execute('SELECT name FROM categories UNION SELECT name FROM tags').fetchall()]
             sections = [{'language': 'fr', 'html': html} for html in static_sections()] if article_ids is None and event_ids is None else []
+            # 1) ce qu'affiche l'accueil (sections, thématiques, titres et chapôs), 2) les textes complets.
             for target in targets:
                 translate_records(db, sections, target, (), ('html',))
-                translate_records(db, articles, target, ('title', 'excerpt'), ('body_html',))
-                translate_records(db, events, target, ('title', 'summary'), ('body_html',))
-                translate_records(db, terms, target, ('name',))
                 translate_records(db, [{**theme, 'language': 'fr'} for theme in THEMES], target, THEME_FIELDS)
+                translate_records(db, terms, target, ('name',))
+                translate_records(db, articles, target, ('title', 'excerpt'))
+                translate_records(db, events, target, ('title', 'summary'))
+                db.connection.commit()
+            for target in targets:
+                for start in range(0, len(articles), 10):
+                    translate_records(db, articles[start:start + 10], target, (), ('body_html',))
+                    db.connection.commit()
+                translate_records(db, events, target, (), ('body_html',))
                 db.connection.commit()
     except Exception as exc:
         print(f'Préparation des traductions interrompue : {exc}')
@@ -752,7 +762,7 @@ class AppHandler(BaseHTTPRequestHandler):
         page = (ROOT / 'index.html').read_text(encoding='utf-8')
         featured = self.public_featured_article(articles[0]) if articles else '<div class="public-empty-featured" data-empty="articles"></div>'
         page = page.replace('<div id="database-featured-article"></div>', featured)
-        analysis_items = ''.join(self.public_analysis_article(article) for article in articles[1:])
+        analysis_items = ''.join(self.public_analysis_article(article) for article in articles[1:11])
         if not analysis_items:
             analysis_items = '<p class="public-empty-analysis" data-empty="articles"></p>'
         page = page.replace('<div id="database-analysis-articles"></div>', analysis_items)
