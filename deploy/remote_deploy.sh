@@ -1,79 +1,104 @@
 #!/usr/bin/env bash
-# Installe une nouvelle version sur le serveur (exécuté sur LWS par deploy/deploy.sh, via SSH).
+# Installe une version sur le serveur LWS (offre Starter, PHP). Exécuté par deploy/deploy.sh via SSH.
 #
-#   bash remote_deploy.sh <dossier_du_site> <archive.tar.gz (dans releases/)> <commit>
+#   bash remote_deploy.sh prepare  <dossier_web> <dossier_reçu> <commit>     valide la version reçue, sans la mettre en ligne
+#   bash remote_deploy.sh activate <dossier_web> <version>                    met cette version en ligne
 #
-# Organisation du dossier du site (par exemple ~/idialogos-prod) :
-#   app/              dossier de l'application déclaré dans Setup Python App (version en ligne)
-#   shared/app.env    réglages du serveur (DATABASE_URL...), jamais dans Git
-#   shared/uploads/   images téléversées, conservées d'une version à l'autre
-#   releases/         versions précédentes (pour le retour arrière) et version en préparation
-#   backups/          sauvegardes de la base faites avant chaque déploiement
-#   deploy.log        historique des déploiements
+# Organisation (dossier_web = htdocs, la racine du site) :
+#   htdocs/index.php, htdocs/.htaccess   chargeur et règles Apache (mis à jour à chaque déploiement)
+#   htdocs/uploads/                      images téléversées, jamais touchées par un déploiement
+#   htdocs/.app/current                  nom de la version en ligne (changer ce fichier bascule le site)
+#   htdocs/.app/history                  versions mises en ligne successivement (pour le retour arrière)
+#   htdocs/.app/releases/<version>/      code de chaque version (les 5 précédentes sont gardées)
+#   htdocs/.app/shared/app.env           réglages : DATABASE_URL, DEPLOY_TOKEN... (jamais dans Git)
+#   htdocs/.app/backups/                 sauvegardes de la base faites avant chaque déploiement
+#
+# Le serveur mutualisé ne fournit que peu de commandes : ce script s'appuie sur les fonctions intégrées de bash
+# et seulement sur mkdir, cp, mv et rm (tar sert à la réception de l'archive, dans deploy.sh).
 set -euo pipefail
 
-SITE="$HOME/${1:?dossier du site manquant}"
-ARCHIVE="${2:?archive manquante}"
-SHA="${3:?commit manquant}"
-case "$ARCHIVE" in /*) ;; *) ARCHIVE="$SITE/releases/$ARCHIVE" ;; esac
+ACTION="${1:?action manquante (prepare ou activate)}"
+WEB="$HOME/${2:?dossier web manquant}"
+BASE="$WEB/.app"
 KEEP_RELEASES="${KEEP_RELEASES:-5}"
-STAMP="$(date +%Y%m%d-%H%M%S)"
-SHORT="${SHA:0:8}"
-NEW="$SITE/releases/new-$STAMP-$SHORT"
+printf -v STAMP '%(%Y%m%d-%H%M%S)T' -1
 
-log() { printf '[%s] %s\n' "$(date +%H:%M:%S)" "$*"; }
-fail() { log "ÉCHEC : $*"; rm -rf "$NEW"; exit 1; }
+log() { local now; printf -v now '%(%H:%M:%S)T' -1; printf '[%s] %s\n' "$now" "$*"; }
+fail() { log "ÉCHEC : $*"; exit 1; }
+read_file() { local line=''; IFS= read -r line < "$1" || true; printf '%s' "$line"; }
 
-mkdir -p "$SITE/shared/uploads" "$SITE/releases" "$SITE/backups"
-export APP_ENV_FILE="$SITE/shared/app.env"
-[ -f "$APP_ENV_FILE" ] || fail "fichier $APP_ENV_FILE absent : le créer avec DATABASE_URL (voir CICD.md)."
+[ -d "$WEB" ] || fail "dossier $WEB introuvable"
+mkdir -p "$BASE/releases" "$BASE/shared" "$BASE/backups" "$WEB/uploads"
+[ -f "$BASE/shared/app.env" ] || fail "fichier $BASE/shared/app.env absent : le créer avec DATABASE_URL et DEPLOY_TOKEN (voir CICD.md)."
 
-# Environnement Python créé par Setup Python App : ~/virtualenv/<dossier>/app/<version>/
-if [ -n "${VENV_PATH:-}" ]; then
-  VENV="$HOME/${VENV_PATH#"$HOME"/}"
-else
-  VENV="$(ls -d "$HOME/virtualenv/${1}/app/"*/ 2>/dev/null | sort -V | tail -n 1 || true)"
-  VENV="${VENV%/}"
-fi
-PYTHON="$VENV/bin/python"
-[ -x "$PYTHON" ] || fail "environnement Python introuvable ($VENV). Créer l'application dans Setup Python App avec le dossier ${1}/app."
+case "$ACTION" in
+  prepare)
+    INCOMING="${3:?dossier reçu manquant}"
+    SHA="${4:?commit manquant}"
+    INCOMING="$BASE/releases/${INCOMING##*/}"
+    [ -d "$INCOMING" ] || fail "version reçue introuvable ($INCOMING)"
+    VERSION="$STAMP-${SHA:0:8}"
+    TARGET="$BASE/releases/$VERSION"
+    log "Préparation de la version $VERSION"
+    mv "$INCOMING" "$TARGET"
+    printf '%s\n' "$SHA" > "$TARGET/VERSION"
+    for file in src/front.php public/index.php public/.htaccess public/app.htaccess public/uploads.htaccess index.html; do
+      [ -f "$TARGET/$file" ] || { rm -rf "$TARGET"; fail "fichier $file absent de la version reçue"; }
+    done
+    if command -v php >/dev/null 2>&1; then
+      for file in "$TARGET"/src/*.php "$TARGET"/public/index.php; do
+        php -l "$file" >/dev/null || { rm -rf "$TARGET"; fail "erreur de syntaxe PHP dans $file"; }
+      done
+      log "Syntaxe PHP vérifiée"
+    fi
+    echo "VERSION=$VERSION"
+    ;;
 
-log "Déploiement de $SHORT dans $SITE"
-mkdir -p "$NEW"
-tar -xzf "$ARCHIVE" -C "$NEW" || fail "archive illisible"
-rm -f "$ARCHIVE"
-printf '%s\n' "$SHA" > "$NEW/VERSION"
-mkdir -p "$NEW/tmp"
+  activate)
+    VERSION="${3:?version manquante}"
+    TARGET="$BASE/releases/$VERSION"
+    [ -f "$TARGET/src/front.php" ] || fail "version $VERSION introuvable"
 
-# Première mise en place : les images envoyées à la main dans app/uploads rejoignent shared/uploads.
-if [ -d "$SITE/app/uploads" ] && [ ! -L "$SITE/app/uploads" ]; then
-  log "Déplacement des images existantes vers shared/uploads"
-  cp -an "$SITE/app/uploads/." "$SITE/shared/uploads/"
-fi
-rm -rf "$NEW/uploads"
-ln -s "$SITE/shared/uploads" "$NEW/uploads"
+    # Première mise en place : l'ancien contenu du site (WordPress...) est mis de côté, hors d'atteinte du web.
+    if [ ! -f "$BASE/current" ]; then
+      OLD="$BASE/ancien-site-$STAMP"
+      moved=0
+      shopt -s dotglob nullglob
+      for entry in "$WEB"/*; do
+        case "${entry##*/}" in .app|uploads|.well-known) continue ;; esac
+        mkdir -p "$OLD"
+        mv "$entry" "$OLD/"
+        moved=1
+      done
+      shopt -u dotglob nullglob
+      if [ "$moved" = 1 ]; then log "Ancien contenu du site mis de côté dans $OLD"; fi
+    fi
 
-log "Dépendances Python ($("$PYTHON" --version 2>&1))"
-"$PYTHON" -m pip install --quiet --disable-pip-version-check -r "$NEW/requirements.txt" || fail "installation des dépendances"
+    # Fichiers de la racine du site, remplacés de façon atomique (copie à part puis renommage).
+    install_file() { cp "$1" "$2.tmp-$STAMP" && mv -f "$2.tmp-$STAMP" "$2"; }
+    install_file "$TARGET/public/app.htaccess" "$BASE/.htaccess"
+    install_file "$TARGET/public/uploads.htaccess" "$WEB/uploads/.htaccess"
+    install_file "$TARGET/public/index.php" "$WEB/index.php"
+    install_file "$TARGET/public/.htaccess" "$WEB/.htaccess"
 
-log "Vérification du chargement de l'application"
-(cd "$NEW" && "$PYTHON" -c "import envfile, server, passenger_wsgi") || fail "l'application ne se charge pas"
+    printf '%s\n' "$VERSION" > "$BASE/current.tmp-$STAMP"
+    mv -f "$BASE/current.tmp-$STAMP" "$BASE/current"
+    printf '%s\n' "$VERSION" >> "$BASE/history"
+    printf '%s %s %s\n' "$STAMP" "$(read_file "$TARGET/VERSION")" "deploy" >> "$BASE/deploy.log"
+    log "Version $VERSION en ligne"
 
-log "Sauvegarde de la base"
-"$PYTHON" "$NEW/deploy/db_backup.py" "$SITE/backups/$STAMP-avant-$SHORT.sql.gz" --garder 10 || fail "sauvegarde de la base"
+    # Ménage : on garde la version en ligne et les KEEP_RELEASES précédentes de l'historique.
+    mapfile -t history < "$BASE/history"
+    declare -A keep=()
+    for (( i = ${#history[@]} - 1, n = 0; i >= 0 && n <= KEEP_RELEASES; i-- )); do
+      if [ -z "${keep[${history[i]}]:-}" ]; then keep[${history[i]}]=1; n=$((n + 1)); fi
+    done
+    shopt -s nullglob
+    for release in "$BASE"/releases/*/; do
+      name="${release%/}"; name="${name##*/}"
+      [ -n "${keep[$name]:-}" ] || rm -rf "$release"
+    done
+    ;;
 
-log "Migrations"
-(cd "$NEW" && "$PYTHON" migrate.py) || fail "migrations (la base peut être restaurée depuis $SITE/backups)"
-
-log "Mise en ligne"
-if [ -d "$SITE/app" ]; then
-  mv "$SITE/app" "$SITE/releases/prev-$STAMP"
-fi
-mv "$NEW" "$SITE/app"
-touch "$SITE/app/tmp/restart.txt"
-printf '%s %s %s\n' "$STAMP" "$SHA" "deploy" >> "$SITE/deploy.log"
-
-# Ménage : on garde les KEEP_RELEASES versions précédentes les plus récentes.
-ls -d "$SITE/releases/prev-"* 2>/dev/null | sort | head -n "-$KEEP_RELEASES" | xargs -r rm -rf || true
-ls -d "$SITE/releases/new-"* 2>/dev/null | xargs -r rm -rf || true
-log "Version $SHORT en ligne (redémarrage de Passenger demandé)"
+  *) fail "action inconnue : $ACTION" ;;
+esac
