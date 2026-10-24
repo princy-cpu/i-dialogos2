@@ -22,7 +22,13 @@ document.querySelector('#search-open')?.addEventListener('click', () => {
 document.querySelector('#search-close')?.addEventListener('click', () => search.classList.remove('open'));
 search?.addEventListener('submit', event => {
   event.preventDefault();
-  const term = document.querySelector('#site-search').value.trim().toLocaleLowerCase('fr');
+  const query = document.querySelector('#site-search').value.trim();
+  // Hors de l'accueil (article, thématique…), la recherche se fait sur la page d'accueil.
+  if (location.pathname !== '/' && query) {
+    location.href = `/?q=${encodeURIComponent(query)}`;
+    return;
+  }
+  const term = query.toLocaleLowerCase('fr');
   const cards = [...document.querySelectorAll('.public-article-card, .analysis-item, .mk-theme')];
   const matches = cards.filter(card => card.textContent.toLocaleLowerCase('fr').includes(term));
   document.querySelector('#search-feedback').textContent = term ? `${matches.length} résultat${matches.length === 1 ? '' : 's'} pour « ${term} ».` : 'Saisissez un mot-clé pour lancer la recherche.';
@@ -53,6 +59,11 @@ const params = new URLSearchParams(location.search);
 if (categoryFilter && params.has('category')) categoryFilter.value = params.get('category');
 if (tagFilter && params.has('tag')) tagFilter.value = params.get('tag');
 filterArticles();
+if (search && params.get('q')) {
+  search.classList.add('open');
+  document.querySelector('#site-search').value = params.get('q');
+  search.requestSubmit();
+}
 document.querySelectorAll('#quick-newsletter,#newsletter-form').forEach(form => form.addEventListener('submit', event => {
   event.preventDefault();
   const feedback = form.querySelector('[aria-live="polite"]') || document.createElement('span');

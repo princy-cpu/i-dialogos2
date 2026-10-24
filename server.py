@@ -543,7 +543,9 @@ class AppHandler(BaseHTTPRequestHandler):
             return self.comments_page()
         if path == '/admin/languages':
             return self.languages_page()
-        return self.send_body(self.site_page('Page introuvable', '<main class="admin-shell"><h1>Page introuvable</h1><a href="/">Retour au site</a></main>'), 404)
+        if path.startswith('/admin'):
+            return self.send_body(self.site_page('Page introuvable', '<main class="admin-shell"><h1>Page introuvable</h1><a href="/admin">Retour à l’administration</a></main>'), 404)
+        return self.public_page('Page introuvable', '<main class="article-page"><h1>Page introuvable</h1><p>Cette page n’existe pas ou a été déplacée.</p><a class="theme-button" href="/">Retour à l’accueil</a></main>', 404)
 
     def do_POST(self) -> None:
         try:
@@ -607,6 +609,28 @@ class AppHandler(BaseHTTPRequestHandler):
 
     def site_page(self, title: str, content: str) -> str:
         return f'''<!doctype html><html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>{esc(title)} · I-Dialogos</title>{HEAD_ASSETS}<link rel="stylesheet" href="/style.css"><link rel="stylesheet" href="/admin.css"></head><body>{content}<script src="/admin.js" defer></script></body></html>'''
+
+    def site_chrome(self, themes: list[dict]) -> tuple[str, str]:
+        """En-tête et pied de page de l'accueil (index.html), réutilisés sur toutes les pages publiques."""
+        page = (ROOT / 'index.html').read_text(encoding='utf-8')
+        header = page[page.index('<div class="world-bar">'):page.index('</header>') + len('</header>')]
+        footer = page[page.index('<footer'):page.index('</footer>') + len('</footer>')]
+        header = header.replace('<div id="themes-menu"></div>', f'<div id="themes-menu">{self.theme_links(themes)}</div>')
+        parts = []
+        for part in (header, footer):
+            # Les ancres de l'accueil (#apropos…) pointent vers la page d'accueil depuis les autres pages.
+            part = part.replace('href="#atelier"', 'href="/admin"').replace('href="#', 'href="/#')
+            parts.append(part.replace('href="/#accueil" class="back-top"', 'href="#accueil" class="back-top"'))
+        return parts[0], parts[1]
+
+    def public_page(self, title: str, content: str, status: int = 200) -> None:
+        """Page publique complète : en-tête du site, contenu, pied de page et scripts de la vitrine."""
+        with connect() as db:
+            language = self.selected_language(db)
+            themes = self.localized_themes(db, language)
+        header, footer = self.site_chrome(themes)
+        document = f'''<!doctype html><html lang="{esc(language)}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>{esc(title)} · I-Dialogos</title>{HEAD_ASSETS}<link rel="stylesheet" href="/style.css"><link rel="stylesheet" href="/admin.css"></head><body class="public-page">{header}{content}{footer}<script src="/app.js" defer></script><script src="/i18n.js" defer></script></body></html>'''
+        self.send_body(document, status)
 
     def admin_page(self, title: str, content: str, active: str = '') -> str:
         session = self.auth()
@@ -768,7 +792,7 @@ class AppHandler(BaseHTTPRequestHandler):
             return self.redirect(f'/thematique/{THEME_ALIASES[theme_id]}')
         theme = next((item for item in THEMES if item['id'] == theme_id), None)
         if not theme:
-            return self.send_body(self.site_page('Thématique introuvable', '<main class="article-page"><h1>Thématique introuvable</h1><a href="/#thematiques">Retour à l’accueil</a></main>'), 404)
+            return self.public_page('Thématique introuvable', '<main class="article-page"><h1>Thématique introuvable</h1><a href="/#thematiques">Retour à l’accueil</a></main>', 404)
         with connect() as db:
             language = self.selected_language(db)
             themes = self.localized_themes(db, language)
@@ -782,8 +806,8 @@ class AppHandler(BaseHTTPRequestHandler):
         current = next(item for item in themes if item['id'] == theme_id)
         cards = ''.join(self.public_card(article, [cats_by_id[row['id']] for row in taxonomy[article['id']][0]], [tags_by_id[row['id']] for row in taxonomy[article['id']][1]]) for article in articles)
         listing = f'<div class="public-article-grid theme-articles">{cards}</div>' if cards else '<p class="theme-empty">Aucune publication pour cette thématique pour le moment.</p>'
-        body = f'''<p class="mk-ribbon">Peuples et citoyens du monde</p><header class="public-article-header"><a class="admin-brand" href="/">I<span>·</span>Dialogos</a><a href="/#thematiques">← Accueil</a></header><main class="article-page theme-page">{self.theme_block(current, '#theme-articles', 'h1')}<section id="theme-articles"><h2 class="theme-subtitle">Analyses et contributions</h2>{listing}<a class="theme-button" href="/#articles">Toutes les analyses →</a></section>{self.explore_themes(themes, 'Autres thématiques', theme_id)}</main>'''
-        self.send_body(self.site_page(current['title'], body))
+        body = f'''<main class="article-page theme-page">{self.theme_block(current, '#theme-articles', 'h1')}<section id="theme-articles"><h2 class="theme-subtitle">Analyses et contributions</h2>{listing}<a class="theme-button" href="/#articles">Toutes les analyses →</a></section>{self.explore_themes(themes, 'Autres thématiques', theme_id)}</main>'''
+        self.public_page(current['title'], body)
 
     def public_featured_article(self, article: dict) -> str:
         image = f'<img class="featured-image" src="{esc(article["featured_image"])}" alt="Image mise en avant de {esc(article["title"])}">' if article['featured_image'] else '<span class="featured-image-placeholder">I·D</span>'
@@ -808,14 +832,14 @@ class AppHandler(BaseHTTPRequestHandler):
             items = db.execute("SELECT * FROM news_events WHERE status='published' ORDER BY CASE WHEN starts_at='' THEN created_at ELSE starts_at END DESC").fetchall()
             items = translate_records(db, items, language, ('title', 'summary'))
         cards = ''.join(self.public_news_event_card(item) for item in items) or '<div class="public-empty-featured" data-empty="events"></div>'
-        body = f'''<header class="public-article-header"><a class="admin-brand" href="/">I<span>·</span>Dialogos</a><a href="/">Retour à l’accueil</a></header><main class="article-page"><span class="eyebrow">I-Dialogos</span><h1>Actualités et événements</h1><section class="event-list">{cards}</section></main>'''
-        self.send_body(self.site_page('Actualités et événements', body))
+        body = f'''<main class="article-page"><span class="eyebrow">I-Dialogos</span><h1>Actualités et événements</h1><section class="event-list">{cards}</section></main>'''
+        self.public_page('Actualités et événements', body)
 
     def public_news_event(self, slug: str, query: dict[str, list[str]]) -> None:
         with connect() as db:
             item = db.execute("SELECT * FROM news_events WHERE slug=? AND status='published'", (slug,)).fetchone()
             if not item:
-                return self.send_body(self.site_page('Contenu introuvable', '<main class="article-page"><h1>Contenu introuvable</h1><a href="/actualites">Retour aux actualités</a></main>'), 404)
+                return self.public_page('Contenu introuvable', '<main class="article-page"><h1>Contenu introuvable</h1><a href="/actualites">Retour aux actualités</a></main>', 404)
             language = self.selected_language(db)
             show_original = bool(query.get('original'))
             if not show_original:
@@ -826,8 +850,8 @@ class AppHandler(BaseHTTPRequestHandler):
         image = f'<img class="article-featured" src="{esc(item["image_url"])}" alt="Illustration : {esc(item["title"])}">' if item['image_url'] else ''
         dates = ' · '.join(esc(value[:10]) for value in (item['starts_at'], item['ends_at']) if value)
         location = f'<span>{esc(item["location"])}</span>' if item['location'] else ''
-        body = f'''<header class="public-article-header"><a class="admin-brand" href="/">I<span>·</span>Dialogos</a><a href="/actualites">Toutes les actualités et événements</a></header><main class="article-page" lang="{esc(content_lang(item) if not show_original else item['language'])}">{notice}<span class="eyebrow">{label}</span><h1>{esc(item['title'])}</h1><div class="article-byline">{dates}{' · ' if dates and location else ''}{location}</div>{image}<p class="article-excerpt">{esc(item['summary'])}</p><div class="article-rich-content">{item['body_html']}</div><a class="back-public" href="/actualites">← Toutes les actualités</a></main>'''
-        self.send_body(self.site_page(item['title'], body))
+        body = f'''<main class="article-page" lang="{esc(content_lang(item) if not show_original else item['language'])}">{notice}<span class="eyebrow">{label}</span><h1>{esc(item['title'])}</h1><div class="article-byline">{dates}{' · ' if dates and location else ''}{location}</div>{image}<p class="article-excerpt">{esc(item['summary'])}</p><div class="article-rich-content">{item['body_html']}</div><a class="back-public" href="/actualites">← Toutes les actualités</a></main>'''
+        self.public_page(item['title'], body)
 
     def get_article_taxonomy(self, db: Database, article_id: str) -> tuple[list[dict], list[dict]]:
         cats = db.execute('SELECT categories.* FROM categories JOIN article_categories ON categories.id=article_categories.category_id WHERE article_categories.article_id=? ORDER BY categories.name', (article_id,)).fetchall()
@@ -847,7 +871,7 @@ class AppHandler(BaseHTTPRequestHandler):
         with connect() as db:
             article = db.execute("SELECT * FROM articles WHERE slug=? AND status='published'", (slug,)).fetchone()
             if not article:
-                return self.send_body(self.site_page('Article introuvable', '<main class="article-page"><h1>Article introuvable</h1><a href="/">Retour à l’accueil</a></main>'), 404)
+                return self.public_page('Article introuvable', '<main class="article-page"><h1>Article introuvable</h1><a href="/">Retour à l’accueil</a></main>', 404)
             cats, tags = self.get_article_taxonomy(db, article['id'])
             comments = db.execute("SELECT * FROM comments WHERE article_id=? AND status='approved' ORDER BY created_at", (article['id'],)).fetchall()
             language = self.selected_language(db)
@@ -868,8 +892,8 @@ class AppHandler(BaseHTTPRequestHandler):
             form = f'''<form class="comment-form" method="post" action="/article/{quote(slug)}/comment">{self.csrf_field()}<h3>Laisser un commentaire</h3><label>Nom<input name="author" required maxlength="100"></label><label>Adresse e-mail (facultatif)<input type="email" name="email" maxlength="200"></label><label>Commentaire<textarea name="body" required maxlength="4000" rows="5"></textarea></label><button class="primary-button">Envoyer pour modération</button><small>Votre commentaire sera visible après validation par l’équipe.</small></form>'''
             flash = '<p class="success-message">Votre commentaire a été envoyé et sera publié après modération.</p>' if query.get('sent') else ''
             comments_block = f'<section id="comments" class="comments-area"><h2>Commentaires ({len(comments)})</h2>{flash}{comment_items or "<p>Soyez le premier à commenter cet article.</p>"}{form}</section>'
-        body = f'''<header class="public-article-header"><a class="admin-brand" href="/">I<span>·</span>Dialogos</a><a href="/">← Toutes les publications</a></header><main class="article-page" lang="{esc(content_lang(article) if not show_original else article['language'])}">{notice}<div class="article-topic-chips">{topic_chips}</div><h1>{esc(article['title'])}</h1><div class="article-byline">{esc(article['author'])} · {esc(article['published_at'][:10] if article['published_at'] else article['created_at'][:10])}</div>{image}<p class="article-excerpt">{esc(article['excerpt'])}</p><div class="article-rich-content">{article['body_html']}</div><div class="article-topic-chips article-tag-list">{tags_html}</div>{comments_block}<a class="back-public" href="/">← Retour à l’accueil</a></main>'''
-        self.send_body(self.site_page(article['title'], body))
+        body = f'''<main class="article-page" lang="{esc(content_lang(article) if not show_original else article['language'])}">{notice}<div class="article-topic-chips">{topic_chips}</div><h1>{esc(article['title'])}</h1><div class="article-byline">{esc(article['author'])} · {esc(article['published_at'][:10] if article['published_at'] else article['created_at'][:10])}</div>{image}<p class="article-excerpt">{esc(article['excerpt'])}</p><div class="article-rich-content">{article['body_html']}</div><div class="article-topic-chips article-tag-list">{tags_html}</div>{comments_block}<a class="back-public" href="/">← Retour à l’accueil</a></main>'''
+        self.public_page(article['title'], body)
 
     def comment_post(self, slug: str, form: dict[str, str]) -> None:
         with connect() as db:
