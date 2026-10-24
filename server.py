@@ -11,7 +11,7 @@ import threading
 import time
 import unicodedata
 import uuid
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 from email import policy
 from email.parser import BytesParser
 from html.parser import HTMLParser
@@ -20,19 +20,34 @@ from http.cookies import SimpleCookie
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, quote, unquote, urlparse
-import psycopg
-from psycopg.rows import dict_row
 
 from translation import detect_language, html_to_text, notice_texts, provider_name, translate_records
 
 
 ROOT = Path(__file__).resolve().parent
 DATABASE_URL = os.environ.get('DATABASE_URL', '').strip()
+# Moteur choisi d'après l'adresse : postgresql://… (poste local) ou mysql://… (hébergement LWS cPanel).
+DB_KIND = 'mysql' if DATABASE_URL.lower().startswith(('mysql://', 'mysql+pymysql://', 'mariadb://')) else 'postgresql'
+if DB_KIND == 'mysql':
+    import pymysql
+    import pymysql.cursors
+    DBIntegrityError: type[Exception] = pymysql.err.IntegrityError
+else:
+    import psycopg
+    from psycopg.rows import dict_row
+    DBIntegrityError = psycopg.IntegrityError
+# En production (HTTPS), le cookie de session n'est envoyé que sur une connexion chiffrée.
+COOKIE_SECURE = '; Secure' if os.environ.get('COOKIE_SECURE', '').strip() == '1' else ''
 UPLOAD_DIR = ROOT / 'uploads'
+# Version déployée (identifiant du commit), écrite dans le fichier VERSION par le script de déploiement.
+APP_VERSION = (ROOT / 'VERSION').read_text(encoding='utf-8').strip() if (ROOT / 'VERSION').exists() else 'dev'
 MAX_REQUEST = 12 * 1024 * 1024
 COOKIE_NAME = 'idialogos_session'
 SESSION_TTL = 12 * 60 * 60
 LOGIN_ATTEMPTS: dict[str, list[float]] = {}
+# Icône et polices communes aux pages générées (la page d'accueil les déclare dans index.html).
+FAVICON = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%231f6b3c'/%3E%3Ctext x='32' y='43' font-family='Arial' font-weight='700' font-size='28' text-anchor='middle' fill='white'%3EI%C2%B7D%3C/text%3E%3C/svg%3E"
+HEAD_ASSETS = f'<link rel="icon" href="{FAVICON}"><link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Playfair+Display:ital,wght@0,500;0,600;0,700;1,500&display=swap" rel="stylesheet">'
 
 
 def now_iso() -> str:
@@ -40,7 +55,9 @@ def now_iso() -> str:
 
 
 class Database:
-    def __init__(self, connection: psycopg.Connection) -> None:
+    """Connexion PostgreSQL. Les requêtes utilisent `?` comme marqueur de paramètre."""
+
+    def __init__(self, connection) -> None:
         self.connection = connection
 
     def __enter__(self) -> 'Database':
@@ -58,14 +75,212 @@ class Database:
         return self.connection.execute(query, params)
 
 
-def connect() -> Database:
+class MySQLResult:
+    """Résultat d'une requête MySQL, avec les mêmes méthodes que le curseur psycopg."""
+
+    def __init__(self, rows: list[dict], rowcount: int) -> None:
+        self.rows, self.rowcount = rows, rowcount
+
+    def fetchone(self) -> dict | None:
+        return self.rows[0] if self.rows else None
+
+    def fetchall(self) -> list[dict]:
+        return list(self.rows)
+
+
+_MYSQL_PLACEHOLDER = re.compile(r'=\s*ANY\(\?\)|\?')
+
+
+class MySQLDatabase:
+    """Connexion MySQL/MariaDB qui accepte les requêtes écrites pour PostgreSQL dans ce projet :
+    `?`, `INSERT OR IGNORE`, `= ANY(?)` avec une liste et `RETURNING id`."""
+
+    def __init__(self, connection) -> None:
+        self.connection = connection
+
+    def __enter__(self) -> 'MySQLDatabase':
+        return self
+
+    def __exit__(self, exc_type, *args: object) -> bool:
+        try:
+            if exc_type is None:
+                self.connection.commit()
+            else:
+                self.connection.rollback()
+        finally:
+            self.connection.close()
+        return False
+
+    def execute(self, query: str, params: tuple | list = ()):
+        query = query.strip()
+        returning = re.search(r'\s+RETURNING\s+id\s*$', query, re.IGNORECASE)
+        if returning:
+            query = query[:returning.start()]
+        query = re.sub(r'INSERT\s+OR\s+IGNORE\s+INTO', 'INSERT IGNORE INTO', query, flags=re.IGNORECASE)
+        query = query.replace('%', '%%')
+        values = iter(params)
+        args: list = []
+
+        def placeholder(match: re.Match) -> str:
+            value = next(values)
+            if match.group(0) == '?':
+                args.append(value)
+                return '%s'
+            items = list(value)
+            if not items:
+                return 'IN (NULL)'
+            args.extend(items)
+            return 'IN (' + ','.join(['%s'] * len(items)) + ')'
+
+        query = _MYSQL_PLACEHOLDER.sub(placeholder, query)
+        with self.connection.cursor() as cursor:
+            cursor.execute(query, tuple(args))
+            if returning:
+                return MySQLResult([{'id': cursor.lastrowid}], cursor.rowcount)
+            rows = list(cursor.fetchall()) if cursor.description else []
+            return MySQLResult(rows, cursor.rowcount)
+
+
+def mysql_settings(url: str) -> dict:
+    parsed = urlparse(url)
+    return {
+        'host': parsed.hostname or 'localhost', 'port': parsed.port or 3306,
+        'user': unquote(parsed.username or ''), 'password': unquote(parsed.password or ''),
+        'database': unquote(parsed.path.lstrip('/')), 'charset': 'utf8mb4',
+    }
+
+
+def connect() -> Database | MySQLDatabase:
     if not DATABASE_URL:
-        raise RuntimeError('Configurez DATABASE_URL avec l’adresse de votre base PostgreSQL.')
+        raise RuntimeError('Configurez DATABASE_URL avec l’adresse de votre base PostgreSQL ou MySQL.')
+    if DB_KIND == 'mysql':
+        connection = pymysql.connect(**mysql_settings(DATABASE_URL), cursorclass=pymysql.cursors.DictCursor, autocommit=False)
+        return MySQLDatabase(connection)
     return Database(psycopg.connect(DATABASE_URL, row_factory=dict_row))
 
 
+MYSQL_TABLE_OPTIONS = 'ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci'
+# Identifiants, jetons et adresses : comparaison exacte (sensible à la casse et aux accents), comme sous PostgreSQL.
+MYSQL_KEY = 'CHARACTER SET utf8mb4 COLLATE utf8mb4_bin'
+MYSQL_SCHEMA = f'''
+  CREATE TABLE IF NOT EXISTS users (
+    id BIGINT AUTO_INCREMENT PRIMARY KEY, username VARCHAR(190) NOT NULL UNIQUE,
+    password_hash VARCHAR(255) NOT NULL, password_salt VARCHAR(255) NOT NULL, created_at VARCHAR(40) NOT NULL
+  ) {MYSQL_TABLE_OPTIONS};
+  CREATE TABLE IF NOT EXISTS languages (
+    code VARCHAR(16) {MYSQL_KEY} PRIMARY KEY, label VARCHAR(100) NOT NULL, enabled INT NOT NULL DEFAULT 1,
+    is_default INT NOT NULL DEFAULT 0
+  ) {MYSQL_TABLE_OPTIONS};
+  CREATE TABLE IF NOT EXISTS sessions (
+    token_hash VARCHAR(128) {MYSQL_KEY} PRIMARY KEY, user_id BIGINT NULL,
+    csrf VARCHAR(128) {MYSQL_KEY} NOT NULL, expires_at BIGINT NOT NULL,
+    CONSTRAINT fk_sessions_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+  ) {MYSQL_TABLE_OPTIONS};
+  CREATE TABLE IF NOT EXISTS categories (
+    id BIGINT AUTO_INCREMENT PRIMARY KEY, name VARCHAR(190) NOT NULL UNIQUE,
+    slug VARCHAR(190) {MYSQL_KEY} NOT NULL UNIQUE, created_at VARCHAR(40) NOT NULL
+  ) {MYSQL_TABLE_OPTIONS};
+  CREATE TABLE IF NOT EXISTS tags (
+    id BIGINT AUTO_INCREMENT PRIMARY KEY, name VARCHAR(190) NOT NULL UNIQUE,
+    slug VARCHAR(190) {MYSQL_KEY} NOT NULL UNIQUE, created_at VARCHAR(40) NOT NULL
+  ) {MYSQL_TABLE_OPTIONS};
+  CREATE TABLE IF NOT EXISTS templates (
+    id BIGINT AUTO_INCREMENT PRIMARY KEY, name VARCHAR(190) NOT NULL UNIQUE, body_html MEDIUMTEXT NOT NULL,
+    is_default INT NOT NULL DEFAULT 0, created_at VARCHAR(40) NOT NULL
+  ) {MYSQL_TABLE_OPTIONS};
+  CREATE TABLE IF NOT EXISTS articles (
+    id VARCHAR(64) {MYSQL_KEY} PRIMARY KEY, title TEXT NOT NULL, slug VARCHAR(190) {MYSQL_KEY} NOT NULL UNIQUE,
+    excerpt TEXT NOT NULL, body_html MEDIUMTEXT NOT NULL, featured_image VARCHAR(1000) NOT NULL DEFAULT '',
+    status VARCHAR(20) NOT NULL DEFAULT 'draft', author VARCHAR(255) NOT NULL, template_id BIGINT NULL,
+    comments_enabled INT NOT NULL DEFAULT 1, created_at VARCHAR(40) NOT NULL, updated_at VARCHAR(40) NOT NULL,
+    published_at VARCHAR(40) NULL, language VARCHAR(16) NOT NULL DEFAULT 'fr',
+    source_url VARCHAR(1000) NOT NULL DEFAULT '',
+    CONSTRAINT fk_articles_template FOREIGN KEY (template_id) REFERENCES templates(id) ON DELETE SET NULL
+  ) {MYSQL_TABLE_OPTIONS};
+  CREATE TABLE IF NOT EXISTS article_categories (
+    article_id VARCHAR(64) {MYSQL_KEY} NOT NULL, category_id BIGINT NOT NULL,
+    PRIMARY KEY(article_id, category_id),
+    CONSTRAINT fk_ac_article FOREIGN KEY (article_id) REFERENCES articles(id) ON DELETE CASCADE,
+    CONSTRAINT fk_ac_category FOREIGN KEY (category_id) REFERENCES categories(id) ON DELETE CASCADE
+  ) {MYSQL_TABLE_OPTIONS};
+  CREATE TABLE IF NOT EXISTS article_tags (
+    article_id VARCHAR(64) {MYSQL_KEY} NOT NULL, tag_id BIGINT NOT NULL,
+    PRIMARY KEY(article_id, tag_id),
+    CONSTRAINT fk_at_article FOREIGN KEY (article_id) REFERENCES articles(id) ON DELETE CASCADE,
+    CONSTRAINT fk_at_tag FOREIGN KEY (tag_id) REFERENCES tags(id) ON DELETE CASCADE
+  ) {MYSQL_TABLE_OPTIONS};
+  CREATE TABLE IF NOT EXISTS comments (
+    id BIGINT AUTO_INCREMENT PRIMARY KEY, article_id VARCHAR(64) {MYSQL_KEY} NOT NULL,
+    author VARCHAR(255) NOT NULL, email VARCHAR(255) NOT NULL DEFAULT '', body TEXT NOT NULL,
+    status VARCHAR(20) NOT NULL DEFAULT 'pending', created_at VARCHAR(40) NOT NULL,
+    CONSTRAINT fk_comments_article FOREIGN KEY (article_id) REFERENCES articles(id) ON DELETE CASCADE
+  ) {MYSQL_TABLE_OPTIONS};
+  CREATE TABLE IF NOT EXISTS news_events (
+    id BIGINT AUTO_INCREMENT PRIMARY KEY, kind VARCHAR(20) NOT NULL DEFAULT 'news', title TEXT NOT NULL,
+    slug VARCHAR(190) {MYSQL_KEY} NOT NULL UNIQUE, summary TEXT NOT NULL, body_html MEDIUMTEXT NOT NULL,
+    image_url VARCHAR(1000) NOT NULL DEFAULT '', location VARCHAR(500) NOT NULL DEFAULT '',
+    starts_at VARCHAR(40) NOT NULL DEFAULT '', ends_at VARCHAR(40) NOT NULL DEFAULT '',
+    status VARCHAR(20) NOT NULL DEFAULT 'draft', created_at VARCHAR(40) NOT NULL, updated_at VARCHAR(40) NOT NULL,
+    language VARCHAR(16) NOT NULL DEFAULT 'fr', source_url VARCHAR(1000) NOT NULL DEFAULT ''
+  ) {MYSQL_TABLE_OPTIONS};
+  CREATE TABLE IF NOT EXISTS translations (
+    hash VARCHAR(64) {MYSQL_KEY} NOT NULL, target VARCHAR(16) {MYSQL_KEY} NOT NULL,
+    translated MEDIUMTEXT NOT NULL, created_at VARCHAR(40) NOT NULL,
+    PRIMARY KEY(hash, target)
+  ) {MYSQL_TABLE_OPTIONS}
+'''
+
+
+# Migrations versionnées : chaque évolution de structure de la base est ajoutée ici, à la suite,
+# avec un numéro croissant et sa requête pour chaque moteur. Elles sont appliquées une seule fois,
+# dans l'ordre, au démarrage et lors de chaque déploiement (`python migrate.py`).
+# Exemple :
+#   (2, 'Ajoute le sous-titre des articles', {
+#       'postgresql': ["ALTER TABLE articles ADD COLUMN IF NOT EXISTS subtitle TEXT NOT NULL DEFAULT ''"],
+#       'mysql': ["ALTER TABLE articles ADD COLUMN subtitle VARCHAR(300) NOT NULL DEFAULT ''"],
+#   }),
+MIGRATIONS: list[tuple[int, str, dict[str, list[str]]]] = [
+    (1, 'Structure initiale (tables créées par initialize)', {'postgresql': [], 'mysql': []}),
+]
+
+
+def schema_version(db) -> int:
+    row = db.execute('SELECT MAX(version) AS version FROM schema_version').fetchone()
+    return int(row['version'] or 0) if row else 0
+
+
+def apply_migrations() -> list[int]:
+    """Applique les migrations manquantes. Renvoie les numéros appliqués."""
+    with connect() as db:
+        db.execute('CREATE TABLE IF NOT EXISTS schema_version (version INTEGER PRIMARY KEY, description VARCHAR(255) NOT NULL, applied_at VARCHAR(40) NOT NULL)')
+        current = schema_version(db)
+    applied = []
+    for version, description, statements in sorted(MIGRATIONS):
+        if version <= current:
+            continue
+        # Une connexion par migration : elle est enregistrée seulement si toutes ses requêtes réussissent.
+        with connect() as db:
+            for statement in statements.get(DB_KIND, []):
+                db.execute(statement)
+            db.execute('INSERT INTO schema_version(version,description,applied_at) VALUES(?,?,?)', (version, description, now_iso()))
+        applied.append(version)
+    return applied
+
+
 def initialize() -> None:
+    create_baseline()
+    apply_migrations()
+
+
+def create_baseline() -> None:
     UPLOAD_DIR.mkdir(exist_ok=True)
+    if DB_KIND == 'mysql':
+        with connect() as db:
+            for statement in MYSQL_SCHEMA.split(';'):
+                if statement.strip():
+                    db.execute(statement)
+            seed_defaults(db)
+        return
     with connect() as db:
         schema = '''
           CREATE TABLE IF NOT EXISTS users (
@@ -130,17 +345,25 @@ def initialize() -> None:
                 db.execute(statement)
         db.execute("ALTER TABLE articles ADD COLUMN IF NOT EXISTS language TEXT NOT NULL DEFAULT 'fr'")
         db.execute("ALTER TABLE news_events ADD COLUMN IF NOT EXISTS language TEXT NOT NULL DEFAULT 'fr'")
-        for code, label, is_default in [('fr', 'Français', 1), ('en', 'English', 0), ('es', 'Español', 0), ('it', 'Italiano', 0)]:
-            db.execute('INSERT OR IGNORE INTO languages(code,label,enabled,is_default) VALUES(?,?,1,?)', (code, label, is_default))
-        defaults = [
-            'IA – Intelligence artificielle', 'Jeunesse', 'Médias et pluralisme', 'Francophonies',
-            'Démocraties', 'Ultramarins', 'Eau, climat et environnement', 'Géopolitique', 'Santé et développement'
-        ]
-        for name in defaults:
-            db.execute('INSERT OR IGNORE INTO categories(name, slug, created_at) VALUES(?,?,?)', (name, slugify(name), now_iso()))
-        if db.execute('SELECT COUNT(*) AS total FROM templates').fetchone()['total'] == 0:
-            skeleton = '<h2>Introduction</h2><p>Présentez le sujet et la question principale.</p><h2>Développement</h2><p>Développez votre analyse et vos arguments.</p><h2>Conclusion</h2><p>Résumez les idées essentielles.</p>'
-            db.execute('INSERT INTO templates(name, body_html, is_default, created_at) VALUES(?,?,1,?)', ('Modèle par défaut', skeleton, now_iso()))
+        # Adresse d'origine des contenus importés de l'ancien site (évite les doublons à la réimportation).
+        db.execute("ALTER TABLE articles ADD COLUMN IF NOT EXISTS source_url TEXT NOT NULL DEFAULT ''")
+        db.execute("ALTER TABLE news_events ADD COLUMN IF NOT EXISTS source_url TEXT NOT NULL DEFAULT ''")
+        seed_defaults(db)
+
+
+def seed_defaults(db: Database | MySQLDatabase) -> None:
+    """Langues, catégories et modèle d'article créés au premier démarrage."""
+    for code, label, is_default in [('fr', 'Français', 1), ('en', 'English', 0), ('es', 'Español', 0), ('it', 'Italiano', 0)]:
+        db.execute('INSERT OR IGNORE INTO languages(code,label,enabled,is_default) VALUES(?,?,1,?)', (code, label, is_default))
+    defaults = [
+        'IA – Intelligence artificielle', 'Jeunesse', 'Médias et pluralisme', 'Francophonies',
+        'Démocraties', 'Ultramarins', 'Eau, climat et environnement', 'Géopolitique', 'Santé et développement'
+    ]
+    for name in defaults:
+        db.execute('INSERT OR IGNORE INTO categories(name, slug, created_at) VALUES(?,?,?)', (name, slugify(name), now_iso()))
+    if db.execute('SELECT COUNT(*) AS total FROM templates').fetchone()['total'] == 0:
+        skeleton = '<h2>Introduction</h2><p>Présentez le sujet et la question principale.</p><h2>Développement</h2><p>Développez votre analyse et vos arguments.</p><h2>Conclusion</h2><p>Résumez les idées essentielles.</p>'
+        db.execute('INSERT INTO templates(name, body_html, is_default, created_at) VALUES(?,?,1,?)', ('Modèle par défaut', skeleton, now_iso()))
 
 
 def default_language(db: Database) -> str:
@@ -156,7 +379,58 @@ def resolve_language(db: Database, requested: str, *texts: str) -> str:
     return detect_language('\n'.join(texts)) or default_language(db)
 
 
+# Thématiques, dans l'ordre et avec les textes des maquettes 7 à 13 (dossier « PAGES Site 13.10.26 »).
+# Chaque thématique regroupe les articles publiés de la catégorie dont le slug est indiqué.
+THEMES = [
+    {'id': 'medias', 'title': 'Médias et pluralisme', 'question': '', 'text': 'Dans un Monde en pleine mutation et aux enjeux considérables pour l’avenir de l’Humanité, comment garantir une information « responsable », qui soit une information libre, indépendante, qualitative, humaine et respectueuse du pluralisme ?', 'text2': '', 'signature': '', 'button': 'Médias et pluralisme', 'image': 'media-pluralism.webp', 'category': 'medias-et-pluralisme'},
+    {'id': 'francophonies', 'title': 'Francophonies', 'question': 'Quelle(s) Francophonie(s) pour demain ?', 'text': 'I-Dialogos entend contribuer, dans le cadre d’une approche transnationale, à une Francophonie renouvelée, moins institutionnelle et davantage ouverte aux sociétés civiles, aux territoires et aux jeunes générations. Une Francophonie plurielle, attentive à la diversité des cultures et des langues, favorisant la circulation des idées et un dialogue équilibré entre les peuples.', 'text2': '', 'signature': 'Jean-Claude Mairal', 'button': 'Francophonie', 'image': 'francophonie.webp', 'category': 'francophonies'},
+    {'id': 'democraties', 'title': 'Démocraties', 'question': 'Quelles démocraties ?', 'text': 'À partir des expériences existantes, I-Dialogos explore, dans le cadre d’une approche transnationale croisée, les voies d’une démocratie à plusieurs niveaux, adaptée à chaque société.', 'text2': 'Dialogue et écoute sont essentiels pour en préserver l’esprit et prévenir les dérives autoritaires ou impérialistes.', 'signature': '', 'button': 'Quelles démocraties ?', 'image': 'democracies.webp', 'category': 'democraties'},
+    {'id': 'ia', 'title': 'IA – Intelligence artificielle', 'question': 'Quelle intelligence artificielle, pour quelle société ?', 'text': 'Comment mettre l’intelligence artificielle au service de l’humain, sans renforcer les inégalités, les dépendances technologiques ni les manipulations de l’information ?', 'text2': 'I-Dialogos propose de croiser les regards sur ses usages et ses effets sur le travail, l’éducation, la culture et la démocratie, en interrogeant la place des langues, la diversité des savoirs et la responsabilité des acteurs.', 'signature': '', 'button': 'Intelligence artificielle', 'image': 'artificial-intelligence.webp', 'category': 'ia-intelligence-artificielle'},
+    {'id': 'jeunesse', 'title': 'Jeunesse', 'question': 'Les jeunes, acteurs des mutations du monde', 'text': 'Comment permettre aux jeunes, dans la diversité de leurs cultures et de leurs parcours, de faire entendre leur voix et de participer aux décisions qui engagent leur avenir ?', 'text2': 'I-Dialogos souhaite ouvrir un espace de dialogue entre jeunes de différents pays et entre générations, autour de l’éducation, de l’emploi, de la culture, du numérique, de l’environnement et de la paix.', 'signature': '', 'button': 'Jeunesse', 'image': 'youth.webp', 'category': 'jeunesse'},
+    {'id': 'ultramarins', 'title': 'Ultramarins', 'question': 'Territoires ultramarins : au cœur du dialogue géopolitique', 'text': 'Longtemps considérés comme périphériques, les territoires ultramarins occupent une place stratégique dans les équilibres géopolitiques, maritimes, environnementaux et culturels. À la rencontre de plusieurs mondes, ils constituent des espaces privilégiés de dialogue, de coopération régionale et de multilatéralisme.', 'text2': '', 'signature': '', 'button': 'Territoires ultramarins', 'image': 'ultramarins-map.webp', 'category': 'ultramarins'},
+    {'id': 'eau', 'title': 'Eau, climat et environnement', 'question': 'L’eau, une réalité territoriale', 'text': 'Face au dérèglement climatique, sa gestion exige une gouvernance démocratique et partagée, associant États, territoires et sociétés civiles, au service de la coopération, de la paix et du développement durable.', 'text2': '', 'signature': 'Abdoulaye Sène', 'button': 'Eau, climat et environnement', 'image': 'water-environment.webp', 'category': 'eau-climat-et-environnement'},
+    {'id': 'geopolitique', 'title': 'Géopolitique', 'question': 'Comprendre un monde en mutation', 'text': 'Dans un monde marqué par de profondes recompositions, I-Dialogos propose une lecture pluraliste des équilibres internationaux. En croisant les regards issus de différents continents, le think tank défend le dialogue, le multilatéralisme et le rôle des Nations unies dans la recherche de solutions pacifiques et partagées.', 'text2': '', 'signature': '', 'button': 'Géopolitique', 'image': 'geopolitics.webp', 'category': 'geopolitique'},
+    {'id': 'sante', 'title': 'Santé et développement', 'question': 'Santé, territoires et coopérations', 'text': 'Une approche sociale, territoriale et internationale des politiques de santé, en lien avec la société civile et la démocratie.', 'text2': 'Une démarche comparative intégrant des conceptions adaptées du service public.', 'signature': '', 'button': 'Santé et développement', 'image': 'health.webp', 'category': 'sante-et-developpement'},
+]
+THEME_FIELDS = ('title', 'question', 'text', 'text2', 'button')
+THEME_ALIASES = {'international': 'geopolitique'}  # anciennes adresses
+# Sections fixes d'index.html traduites côté serveur (repères : commentaires HTML de la page).
+STATIC_SECTIONS = [('<!-- 2 – Le réseau -->', '<!-- 7 à 13 – Thématiques -->'), ('<!-- 14 – Experts -->', '  </main>')]
+
+MONTHS = {
+    'fr': 'janvier février mars avril mai juin juillet août septembre octobre novembre décembre'.split(),
+    'en': 'January February March April May June July August September October November December'.split(),
+    'es': 'enero febrero marzo abril mayo junio julio agosto septiembre octubre noviembre diciembre'.split(),
+    'it': 'gennaio febbraio marzo aprile maggio giugno luglio agosto settembre ottobre novembre dicembre'.split(),
+}
+
+
+def long_date(value: str, language: str) -> str:
+    """« 2026-10-09… » → « 9 octobre 2026 » dans la langue d'affichage."""
+    try:
+        moment = datetime.fromisoformat(value[:10])
+    except (TypeError, ValueError):
+        return value[:10] if value else ''
+    month = MONTHS.get(language, MONTHS['fr'])[moment.month - 1]
+    if language == 'en':
+        return f'{month} {moment.day}, {moment.year}'
+    if language == 'es':
+        return f'{moment.day} de {month} de {moment.year}'
+    day = '1er' if language == 'fr' and moment.day == 1 else str(moment.day)
+    return f'{day} {month} {moment.year}'
+
+
 PRETRANSLATE_LOCK = threading.Lock()
+
+
+def static_sections() -> list[str]:
+    """Sections fixes d'index.html (en français) traduites côté serveur, entre leurs repères."""
+    page = (ROOT / 'index.html').read_text(encoding='utf-8')
+    sections = []
+    for start, end in STATIC_SECTIONS:
+        if start in page and end in page:
+            sections.append(page.split(start, 1)[1].split(end, 1)[0])
+    return sections
 
 
 def pretranslate(article_ids: list[str] | None = None, event_ids: list[int] | None = None) -> None:
@@ -170,10 +444,20 @@ def pretranslate(article_ids: list[str] | None = None, event_ids: list[int] | No
             articles = db.execute("SELECT * FROM articles WHERE status='published'" + (' AND id = ANY(?)' if article_ids is not None else ''), (article_ids,) if article_ids is not None else ()).fetchall()
             events = db.execute("SELECT * FROM news_events WHERE status='published'" + (' AND id = ANY(?)' if event_ids is not None else ''), (event_ids,) if event_ids is not None else ()).fetchall()
             terms = [{**row, 'language': source} for row in db.execute('SELECT name FROM categories UNION SELECT name FROM tags').fetchall()]
+            sections = [{'language': 'fr', 'html': html} for html in static_sections()] if article_ids is None and event_ids is None else []
+            # 1) ce qu'affiche l'accueil (sections, thématiques, titres et chapôs), 2) les textes complets.
             for target in targets:
-                translate_records(db, articles, target, ('title', 'excerpt'), ('body_html',))
-                translate_records(db, events, target, ('title', 'summary'), ('body_html',))
+                translate_records(db, sections, target, (), ('html',))
+                translate_records(db, [{**theme, 'language': 'fr'} for theme in THEMES], target, THEME_FIELDS)
                 translate_records(db, terms, target, ('name',))
+                translate_records(db, articles, target, ('title', 'excerpt'))
+                translate_records(db, events, target, ('title', 'summary'))
+                db.connection.commit()
+            for target in targets:
+                for start in range(0, len(articles), 10):
+                    translate_records(db, articles[start:start + 10], target, (), ('body_html',))
+                    db.connection.commit()
+                translate_records(db, events, target, (), ('body_html',))
                 db.connection.commit()
     except Exception as exc:
         print(f'Préparation des traductions interrompue : {exc}')
@@ -319,6 +603,21 @@ class AppHandler(BaseHTTPRequestHandler):
     def log_message(self, fmt: str, *args: object) -> None:
         print(f'{self.address_string()} - {fmt % args}')
 
+    def healthz(self) -> None:
+        """Contrôle de santé utilisé après chaque déploiement : base joignable et version en ligne."""
+        report = {'status': 'ok', 'version': APP_VERSION, 'database': DB_KIND}
+        try:
+            with connect() as db:
+                db.execute('SELECT 1').fetchone()
+                report['schema'] = schema_version(db)
+        except Exception as exc:  # noqa: BLE001 (toute erreur de base rend le site indisponible)
+            report.update(status='error', error=type(exc).__name__)
+        # Une base plus récente que le code est acceptée : c'est le cas juste après un retour arrière.
+        status = 200 if report['status'] == 'ok' and report.get('schema', 0) >= max(v for v, _, _ in MIGRATIONS) else 503
+        if status == 503 and report['status'] == 'ok':
+            report.update(status='error', error='migrations en attente')
+        self.send_body(json.dumps(report), status, 'application/json; charset=utf-8', [('Cache-Control', 'no-store')])
+
     def send_body(self, body: str | bytes, status: int = 200, content_type: str = 'text/html; charset=utf-8', headers: list[tuple[str, str]] | None = None) -> None:
         data = body.encode('utf-8') if isinstance(body, str) else body
         self.send_response(status)
@@ -327,7 +626,7 @@ class AppHandler(BaseHTTPRequestHandler):
         self.send_header('X-Content-Type-Options', 'nosniff')
         self.send_header('X-Frame-Options', 'DENY')
         self.send_header('Referrer-Policy', 'same-origin')
-        self.send_header('Content-Security-Policy', "default-src 'self'; img-src 'self' https: data:; style-src 'self' 'unsafe-inline'; script-src 'self'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'")
+        self.send_header('Content-Security-Policy', "default-src 'self'; img-src 'self' https: data:; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; script-src 'self'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'")
         for key, value in headers or []:
             self.send_header(key, value)
         pending_cookie = getattr(self, '_new_cookie', None)
@@ -406,7 +705,7 @@ class AppHandler(BaseHTTPRequestHandler):
             token = secrets.token_urlsafe(32)
             csrf = secrets.token_urlsafe(32)
             db.execute('INSERT INTO sessions(token_hash,user_id,csrf,expires_at) VALUES(?,?,?,?)', (hashlib.sha256(token.encode()).hexdigest(), None, csrf, int(time.time()) + SESSION_TTL))
-            self._new_cookie = f'{COOKIE_NAME}={token}; HttpOnly; SameSite=Lax; Path=/; Max-Age={SESSION_TTL}'
+            self._new_cookie = f'{COOKIE_NAME}={token}; HttpOnly; SameSite=Lax; Path=/; Max-Age={SESSION_TTL}{COOKIE_SECURE}'
             return db.execute('SELECT sessions.*, NULL AS username FROM sessions WHERE token_hash=?', (hashlib.sha256(token.encode()).hexdigest(),)).fetchone()
 
     def auth(self) -> dict | None:
@@ -450,6 +749,8 @@ class AppHandler(BaseHTTPRequestHandler):
     def do_GET(self) -> None:
         parsed = urlparse(self.path)
         path = unquote(parsed.path)
+        if path == '/healthz':
+            return self.healthz()
         if path == '/api/languages':
             with connect() as db:
                 rows = db.execute('SELECT code,label,is_default FROM languages WHERE enabled=1 ORDER BY is_default DESC,label').fetchall()
@@ -462,6 +763,8 @@ class AppHandler(BaseHTTPRequestHandler):
             return self.upload_file(path)
         if path.startswith('/article/'):
             return self.public_article(path.removeprefix('/article/'), parse_qs(parsed.query))
+        if path.startswith('/thematique/'):
+            return self.public_theme(path.removeprefix('/thematique/'))
         if path == '/actualites':
             return self.public_news_events()
         if path.startswith('/actualite/'):
@@ -496,7 +799,9 @@ class AppHandler(BaseHTTPRequestHandler):
             return self.comments_page()
         if path == '/admin/languages':
             return self.languages_page()
-        return self.send_body(self.site_page('Page introuvable', '<main class="admin-shell"><h1>Page introuvable</h1><a href="/">Retour au site</a></main>'), 404)
+        if path.startswith('/admin'):
+            return self.send_body(self.site_page('Page introuvable', '<main class="admin-shell"><h1>Page introuvable</h1><a href="/admin">Retour à l’administration</a></main>'), 404)
+        return self.public_page('Page introuvable', '<main class="article-page"><h1>Page introuvable</h1><p>Cette page n’existe pas ou a été déplacée.</p><a class="theme-button" href="/">Retour à l’accueil</a></main>', 404)
 
     def do_POST(self) -> None:
         try:
@@ -559,7 +864,29 @@ class AppHandler(BaseHTTPRequestHandler):
         self.send_body(candidate.read_bytes(), content_type=mimetypes.guess_type(candidate.name)[0] or 'application/octet-stream', headers=[('Cache-Control', 'public, max-age=86400')])
 
     def site_page(self, title: str, content: str) -> str:
-        return f'''<!doctype html><html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>{esc(title)} · I-Dialogos</title><link rel="stylesheet" href="/style.css"><link rel="stylesheet" href="/admin.css"></head><body>{content}<script src="/admin.js" defer></script></body></html>'''
+        return f'''<!doctype html><html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>{esc(title)} · I-Dialogos</title>{HEAD_ASSETS}<link rel="stylesheet" href="/style.css"><link rel="stylesheet" href="/admin.css"></head><body>{content}<script src="/admin.js" defer></script></body></html>'''
+
+    def site_chrome(self, themes: list[dict]) -> tuple[str, str]:
+        """En-tête et pied de page de l'accueil (index.html), réutilisés sur toutes les pages publiques."""
+        page = (ROOT / 'index.html').read_text(encoding='utf-8')
+        header = page[page.index('<div class="world-bar">'):page.index('</header>') + len('</header>')]
+        footer = page[page.index('<footer'):page.index('</footer>') + len('</footer>')]
+        header = header.replace('<div id="themes-menu"></div>', f'<div id="themes-menu">{self.theme_links(themes)}</div>')
+        parts = []
+        for part in (header, footer):
+            # Les ancres de l'accueil (#apropos…) pointent vers la page d'accueil depuis les autres pages.
+            part = part.replace('href="#atelier"', 'href="/admin"').replace('href="#', 'href="/#')
+            parts.append(part.replace('href="/#accueil" class="back-top"', 'href="#accueil" class="back-top"'))
+        return parts[0], parts[1]
+
+    def public_page(self, title: str, content: str, status: int = 200) -> None:
+        """Page publique complète : en-tête du site, contenu, pied de page et scripts de la vitrine."""
+        with connect() as db:
+            language = self.selected_language(db)
+            themes = self.localized_themes(db, language)
+        header, footer = self.site_chrome(themes)
+        document = f'''<!doctype html><html lang="{esc(language)}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>{esc(title)} · I-Dialogos</title>{HEAD_ASSETS}<link rel="stylesheet" href="/style.css"><link rel="stylesheet" href="/admin.css"></head><body class="public-page">{header}{content}{footer}<script src="/app.js" defer></script><script src="/i18n.js" defer></script></body></html>'''
+        self.send_body(document, status)
 
     def admin_page(self, title: str, content: str, active: str = '') -> str:
         session = self.auth()
@@ -593,7 +920,7 @@ class AppHandler(BaseHTTPRequestHandler):
                 db.execute('INSERT INTO users(username,password_hash,password_salt,created_at) VALUES(?,?,?,?)', (username, digest.hex(), salt.hex(), now_iso()))
                 user_id = db.execute('SELECT id FROM users WHERE username=?', (username,)).fetchone()['id']
                 self.create_authenticated_session(db, user_id)
-        except psycopg.IntegrityError:
+        except DBIntegrityError:
             return self.send_body(self.site_page('Configuration', '<main class="auth-wrap"><div class="auth-card"><h1>Un compte existe déjà</h1><a href="/admin/login">Se connecter</a></div></main>'), 409)
         return self.redirect('/admin', [self._new_cookie])
 
@@ -601,7 +928,7 @@ class AppHandler(BaseHTTPRequestHandler):
         token = secrets.token_urlsafe(32)
         csrf = secrets.token_urlsafe(32)
         db.execute('INSERT INTO sessions(token_hash,user_id,csrf,expires_at) VALUES(?,?,?,?)', (hashlib.sha256(token.encode()).hexdigest(), user_id, csrf, int(time.time()) + SESSION_TTL))
-        self._new_cookie = f'{COOKIE_NAME}={token}; HttpOnly; SameSite=Lax; Path=/; Max-Age={SESSION_TTL}'
+        self._new_cookie = f'{COOKIE_NAME}={token}; HttpOnly; SameSite=Lax; Path=/; Max-Age={SESSION_TTL}{COOKIE_SECURE}'
 
     def login_page(self) -> None:
         with connect() as db:
@@ -637,7 +964,7 @@ class AppHandler(BaseHTTPRequestHandler):
         if token:
             with connect() as db:
                 db.execute('DELETE FROM sessions WHERE token_hash=?', (hashlib.sha256(token.encode()).hexdigest(),))
-        return self.redirect('/', [f'{COOKIE_NAME}=; HttpOnly; SameSite=Lax; Path=/; Max-Age=0'])
+        return self.redirect('/', [f'{COOKIE_NAME}=; HttpOnly; SameSite=Lax; Path=/; Max-Age=0{COOKIE_SECURE}'])
 
     def public_home(self) -> None:
         with connect() as db:
@@ -651,6 +978,7 @@ class AppHandler(BaseHTTPRequestHandler):
             tag_links = db.execute('SELECT article_id,tag_id FROM article_tags WHERE article_id = ANY(?)', (ids,)).fetchall()
             articles = translate_records(db, articles, language, ('title', 'excerpt'))
             news_events = translate_records(db, news_events, language, ('title', 'summary'))
+            themes = self.localized_themes(db, language)
         categories_by_id = {row['id']: row for row in categories}
         tags_by_id = {row['id']: row for row in tags}
         article_cats: dict[str, list[dict]] = {}
@@ -662,13 +990,14 @@ class AppHandler(BaseHTTPRequestHandler):
         categories.sort(key=lambda row: row['name'].casefold())
         tags.sort(key=lambda row: row['name'].casefold())
         cards = ''.join(self.public_card(article, sorted(article_cats.get(article['id'], []), key=lambda row: row['name'].casefold()), sorted(article_tags.get(article['id'], []), key=lambda row: row['name'].casefold())) for article in articles)
-        feed = f'<div class="public-article-grid" id="public-feed">{cards or "<div class=\"empty-state\" data-empty=\"articles\"></div>"}</div>'
+        cards = cards or '<div class="empty-state" data-empty="articles"></div>'
+        feed = f'<div class="public-article-grid" id="public-feed">{cards}</div>'
         theme_options = '<option value="">Tous les thèmes</option>' + ''.join(f'<option value="{esc(row["slug"])}">{esc(row["name"])}</option>' for row in categories)
         tag_options = '<option value="">Tous les tags</option>' + ''.join(f'<option value="{esc(row["slug"])}">{esc(row["name"])}</option>' for row in tags)
         page = (ROOT / 'index.html').read_text(encoding='utf-8')
         featured = self.public_featured_article(articles[0]) if articles else '<div class="public-empty-featured" data-empty="articles"></div>'
         page = page.replace('<div id="database-featured-article"></div>', featured)
-        analysis_items = ''.join(self.public_analysis_article(article) for article in articles[1:5])
+        analysis_items = ''.join(self.public_analysis_article(article) for article in articles[1:11])
         if not analysis_items:
             analysis_items = '<p class="public-empty-analysis" data-empty="articles"></p>'
         page = page.replace('<div id="database-analysis-articles"></div>', analysis_items)
@@ -680,17 +1009,74 @@ class AppHandler(BaseHTTPRequestHandler):
         page = page.replace('id="public-theme-filter"><option value="">Tous les thèmes</option></select>', f'id="public-theme-filter">{theme_options}</select>')
         page = page.replace('id="public-tag-filter"><option value="">Tous les tags</option></select>', f'id="public-tag-filter">{tag_options}</select>')
         page = page.replace('<div class="public-article-grid" id="public-feed"></div>', feed)
+        page = page.replace('<div id="themes-menu"></div>', f'<div id="themes-menu">{self.theme_links(themes)}</div>')
+        if language != 'fr':
+            with connect() as db:
+                page = self.translate_static_sections(db, page, language)
+        page = page.replace('<div id="database-explore-themes"></div>', self.explore_themes(themes, 'Explorer nos thématiques'))
+        page = page.replace('<div id="database-theme-blocks"></div>', ''.join(self.theme_block(theme, f'/thematique/{quote(theme["id"])}') for theme in themes))
         self.send_body(page)
+
+    def translate_static_sections(self, db: Database, page: str, language: str) -> str:
+        """Traduit les sections fixes d'index.html (rédigées en français), entre leurs commentaires de repère."""
+        for start, end in STATIC_SECTIONS:
+            if start not in page or end not in page:
+                continue
+            head, rest = page.split(start, 1)
+            section, tail = rest.split(end, 1)
+            translated = translate_records(db, [{'language': 'fr', 'html': section}], language, (), ('html',))[0]
+            page = head + start + translated['html'] + end + tail
+        return page
+
+    def localized_themes(self, db: Database, language: str) -> list[dict]:
+        return translate_records(db, [{**theme, 'language': 'fr'} for theme in THEMES], language, THEME_FIELDS)
+
+    def theme_links(self, themes: list[dict], current: str = '') -> str:
+        return ''.join(f'<a href="/thematique/{quote(theme["id"])}" lang="{esc(content_lang(theme))}">{esc(theme["title"])}</a>' for theme in themes if theme['id'] != current)
+
+    def explore_themes(self, themes: list[dict], heading: str, current: str = '') -> str:
+        return f'<section class="morethemes" id="explorer-thematiques"><h2>{esc(heading)}</h2><div class="themegrid">{self.theme_links(themes, current)}</div></section>'
+
+    def theme_block(self, theme: dict, more_href: str, title_tag: str = 'h2') -> str:
+        """Bloc d'une thématique selon les maquettes 7 à 13 : image à gauche, question et texte à droite."""
+        question = f'<h3>{esc(theme["question"])}</h3>' if theme['question'] else ''
+        paragraphs = ''.join(f'<p>{esc(theme[key])}</p>' for key in ('text', 'text2') if theme[key])
+        signature = f'<p class="mk-signature">{esc(theme["signature"])}</p>' if theme['signature'] else ''
+        return f'''<article class="mk-theme" id="theme-{esc(theme['id'])}" lang="{esc(content_lang(theme))}"><{title_tag} class="mk-page-title">{esc(theme['title'])}</{title_tag}><div class="mk-split"><img src="/assets/{esc(theme['image'])}" alt="Illustration : {esc(theme['title'])}" loading="lazy"><div class="mk-theme-text">{question}{paragraphs}{signature}<a class="mk-more" href="{esc(more_href)}">Voir plus d’informations<br>{esc(theme['button'])}</a></div></div></article>'''
+
+    def public_theme(self, theme_id: str) -> None:
+        if not theme_id.strip('/'):
+            return self.redirect('/#thematiques')
+        if theme_id in THEME_ALIASES:
+            return self.redirect(f'/thematique/{THEME_ALIASES[theme_id]}')
+        theme = next((item for item in THEMES if item['id'] == theme_id), None)
+        if not theme:
+            return self.public_page('Thématique introuvable', '<main class="article-page"><h1>Thématique introuvable</h1><a href="/#thematiques">Retour à l’accueil</a></main>', 404)
+        with connect() as db:
+            language = self.selected_language(db)
+            themes = self.localized_themes(db, language)
+            articles = db.execute("SELECT articles.* FROM articles JOIN article_categories ON article_categories.article_id=articles.id JOIN categories ON categories.id=article_categories.category_id WHERE articles.status='published' AND categories.slug=? ORDER BY articles.published_at DESC, articles.created_at DESC", (theme['category'],)).fetchall()
+            taxonomy = {article['id']: self.get_article_taxonomy(db, article['id']) for article in articles}
+            all_cats = {row['id']: row for cats, _ in taxonomy.values() for row in cats}
+            all_tags = {row['id']: row for _, tags in taxonomy.values() for row in tags}
+            cats_by_id = {row['id']: row for row in self.localize_terms(db, list(all_cats.values()), language)}
+            tags_by_id = {row['id']: row for row in self.localize_terms(db, list(all_tags.values()), language)}
+            articles = translate_records(db, articles, language, ('title', 'excerpt'))
+        current = next(item for item in themes if item['id'] == theme_id)
+        cards = ''.join(self.public_card(article, [cats_by_id[row['id']] for row in taxonomy[article['id']][0]], [tags_by_id[row['id']] for row in taxonomy[article['id']][1]]) for article in articles)
+        listing = f'<div class="public-article-grid theme-articles">{cards}</div>' if cards else '<p class="theme-empty">Aucune publication pour cette thématique pour le moment.</p>'
+        body = f'''<main class="article-page theme-page">{self.theme_block(current, '#theme-articles', 'h1')}<section id="theme-articles"><h2 class="theme-subtitle">Analyses et contributions</h2>{listing}<a class="theme-button" href="/#articles">Toutes les analyses →</a></section>{self.explore_themes(themes, 'Autres thématiques', theme_id)}</main>'''
+        self.public_page(current['title'], body)
 
     def public_featured_article(self, article: dict) -> str:
         image = f'<img class="featured-image" src="{esc(article["featured_image"])}" alt="Image mise en avant de {esc(article["title"])}">' if article['featured_image'] else '<span class="featured-image-placeholder">I·D</span>'
-        date = article['published_at'] or article['created_at']
-        return f'''<article class="featured-article" lang="{esc(content_lang(article))}"><a href="/article/{quote(article['slug'])}" class="image-link">{image}</a><h1><a href="/article/{quote(article['slug'])}">{esc(article['title'])}</a></h1><p>{esc(article['excerpt'])} <span class="featured-byline">{esc(article['author'])} · <time>{esc(date[:10])}</time></span></p></article>'''
+        date = long_date(article['published_at'] or article['created_at'], article.get('display_language', 'fr'))
+        return f'''<article class="featured-article" lang="{esc(content_lang(article))}"><a href="/article/{quote(article['slug'])}" class="image-link">{image}</a><h1><a href="/article/{quote(article['slug'])}">{esc(article['title'])}</a></h1><p class="featured-author">{esc(article['author'])}</p><p>{esc(article['excerpt'])} <time class="mk-date">{esc(date)}</time></p></article>'''
 
     def public_analysis_article(self, article: dict) -> str:
         image = f'<img src="{esc(article["featured_image"])}" alt="Image mise en avant de {esc(article["title"])}" loading="lazy">' if article['featured_image'] else '<span class="analysis-image-placeholder">I·D</span>'
-        date = article['published_at'] or article['created_at']
-        return f'''<article class="analysis-item" lang="{esc(content_lang(article))}">{image}<div><h3><a href="/article/{quote(article['slug'])}">{esc(article['title'])}</a></h3><p>{esc(article['excerpt'])}</p><time>{esc(date[:10])}</time></div></article>'''
+        date = long_date(article['published_at'] or article['created_at'], article.get('display_language', 'fr'))
+        return f'''<article class="analysis-item" lang="{esc(content_lang(article))}"><a href="/article/{quote(article['slug'])}" tabindex="-1">{image}</a><div><h3><a href="/article/{quote(article['slug'])}">{esc(article['title'])}</a> <span class="analysis-author">{esc(article['author'])}</span></h3><p>{esc(article['excerpt'])}</p><time class="mk-date">{esc(date)}</time></div></article>'''
 
     def public_news_event_card(self, item: dict) -> str:
         label = 'Événement' if item['kind'] == 'event' else 'Actualité'
@@ -705,14 +1091,14 @@ class AppHandler(BaseHTTPRequestHandler):
             items = db.execute("SELECT * FROM news_events WHERE status='published' ORDER BY CASE WHEN starts_at='' THEN created_at ELSE starts_at END DESC").fetchall()
             items = translate_records(db, items, language, ('title', 'summary'))
         cards = ''.join(self.public_news_event_card(item) for item in items) or '<div class="public-empty-featured" data-empty="events"></div>'
-        body = f'''<header class="public-article-header"><a class="admin-brand" href="/">I<span>·</span>Dialogos</a><a href="/">Retour à l’accueil</a></header><main class="article-page"><span class="eyebrow">I-Dialogos</span><h1>Actualités et événements</h1><section class="event-list">{cards}</section></main>'''
-        self.send_body(self.site_page('Actualités et événements', body))
+        body = f'''<main class="article-page"><span class="eyebrow">I-Dialogos</span><h1>Actualités et événements</h1><section class="event-list">{cards}</section></main>'''
+        self.public_page('Actualités et événements', body)
 
     def public_news_event(self, slug: str, query: dict[str, list[str]]) -> None:
         with connect() as db:
             item = db.execute("SELECT * FROM news_events WHERE slug=? AND status='published'", (slug,)).fetchone()
             if not item:
-                return self.send_body(self.site_page('Contenu introuvable', '<main class="article-page"><h1>Contenu introuvable</h1><a href="/actualites">Retour aux actualités</a></main>'), 404)
+                return self.public_page('Contenu introuvable', '<main class="article-page"><h1>Contenu introuvable</h1><a href="/actualites">Retour aux actualités</a></main>', 404)
             language = self.selected_language(db)
             show_original = bool(query.get('original'))
             if not show_original:
@@ -723,8 +1109,8 @@ class AppHandler(BaseHTTPRequestHandler):
         image = f'<img class="article-featured" src="{esc(item["image_url"])}" alt="Illustration : {esc(item["title"])}">' if item['image_url'] else ''
         dates = ' · '.join(esc(value[:10]) for value in (item['starts_at'], item['ends_at']) if value)
         location = f'<span>{esc(item["location"])}</span>' if item['location'] else ''
-        body = f'''<header class="public-article-header"><a class="admin-brand" href="/">I<span>·</span>Dialogos</a><a href="/actualites">Toutes les actualités et événements</a></header><main class="article-page" lang="{esc(content_lang(item) if not show_original else item['language'])}">{notice}<span class="eyebrow">{label}</span><h1>{esc(item['title'])}</h1><div class="article-byline">{dates}{' · ' if dates and location else ''}{location}</div>{image}<p class="article-excerpt">{esc(item['summary'])}</p><div class="article-rich-content">{item['body_html']}</div><a class="back-public" href="/actualites">← Toutes les actualités</a></main>'''
-        self.send_body(self.site_page(item['title'], body))
+        body = f'''<main class="article-page" lang="{esc(content_lang(item) if not show_original else item['language'])}">{notice}<span class="eyebrow">{label}</span><h1>{esc(item['title'])}</h1><div class="article-byline">{dates}{' · ' if dates and location else ''}{location}</div>{image}<p class="article-excerpt">{esc(item['summary'])}</p><div class="article-rich-content">{item['body_html']}</div><a class="back-public" href="/actualites">← Toutes les actualités</a></main>'''
+        self.public_page(item['title'], body)
 
     def get_article_taxonomy(self, db: Database, article_id: str) -> tuple[list[dict], list[dict]]:
         cats = db.execute('SELECT categories.* FROM categories JOIN article_categories ON categories.id=article_categories.category_id WHERE article_categories.article_id=? ORDER BY categories.name', (article_id,)).fetchall()
@@ -744,7 +1130,7 @@ class AppHandler(BaseHTTPRequestHandler):
         with connect() as db:
             article = db.execute("SELECT * FROM articles WHERE slug=? AND status='published'", (slug,)).fetchone()
             if not article:
-                return self.send_body(self.site_page('Article introuvable', '<main class="article-page"><h1>Article introuvable</h1><a href="/">Retour à l’accueil</a></main>'), 404)
+                return self.public_page('Article introuvable', '<main class="article-page"><h1>Article introuvable</h1><a href="/">Retour à l’accueil</a></main>', 404)
             cats, tags = self.get_article_taxonomy(db, article['id'])
             comments = db.execute("SELECT * FROM comments WHERE article_id=? AND status='approved' ORDER BY created_at", (article['id'],)).fetchall()
             language = self.selected_language(db)
@@ -760,13 +1146,13 @@ class AppHandler(BaseHTTPRequestHandler):
         image = f'<img class="article-featured" src="{esc(article["featured_image"])}" alt="Image mise en avant de l’article">' if article['featured_image'] else ''
         comments_block = ''
         if article['comments_enabled']:
-            session = self.session(create=True)
+            self.session(create=True)  # crée la session porteuse du jeton anti-falsification du formulaire
             comment_items = ''.join(f'<article class="comment"><strong>{esc(row["author"])}</strong><time>{esc(row["created_at"][:10])}</time><p>{esc(row["body"])}</p></article>' for row in comments)
             form = f'''<form class="comment-form" method="post" action="/article/{quote(slug)}/comment">{self.csrf_field()}<h3>Laisser un commentaire</h3><label>Nom<input name="author" required maxlength="100"></label><label>Adresse e-mail (facultatif)<input type="email" name="email" maxlength="200"></label><label>Commentaire<textarea name="body" required maxlength="4000" rows="5"></textarea></label><button class="primary-button">Envoyer pour modération</button><small>Votre commentaire sera visible après validation par l’équipe.</small></form>'''
             flash = '<p class="success-message">Votre commentaire a été envoyé et sera publié après modération.</p>' if query.get('sent') else ''
             comments_block = f'<section id="comments" class="comments-area"><h2>Commentaires ({len(comments)})</h2>{flash}{comment_items or "<p>Soyez le premier à commenter cet article.</p>"}{form}</section>'
-        body = f'''<header class="public-article-header"><a class="admin-brand" href="/">I<span>·</span>Dialogos</a><a href="/">← Toutes les publications</a></header><main class="article-page" lang="{esc(content_lang(article) if not show_original else article['language'])}">{notice}<div class="article-topic-chips">{topic_chips}</div><h1>{esc(article['title'])}</h1><div class="article-byline">{esc(article['author'])} · {esc(article['published_at'][:10] if article['published_at'] else article['created_at'][:10])}</div>{image}<p class="article-excerpt">{esc(article['excerpt'])}</p><div class="article-rich-content">{article['body_html']}</div><div class="article-topic-chips article-tag-list">{tags_html}</div>{comments_block}<a class="back-public" href="/">← Retour à l’accueil</a></main>'''
-        self.send_body(self.site_page(article['title'], body))
+        body = f'''<main class="article-page" lang="{esc(content_lang(article) if not show_original else article['language'])}">{notice}<div class="article-topic-chips">{topic_chips}</div><h1>{esc(article['title'])}</h1><div class="article-byline">{esc(article['author'])} · {esc(article['published_at'][:10] if article['published_at'] else article['created_at'][:10])}</div>{image}<p class="article-excerpt">{esc(article['excerpt'])}</p><div class="article-rich-content">{article['body_html']}</div><div class="article-topic-chips article-tag-list">{tags_html}</div>{comments_block}<a class="back-public" href="/">← Retour à l’accueil</a></main>'''
+        self.public_page(article['title'], body)
 
     def comment_post(self, slug: str, form: dict[str, str]) -> None:
         with connect() as db:
@@ -1116,7 +1502,7 @@ class AppHandler(BaseHTTPRequestHandler):
             return self.redirect('/admin/login')
         with connect() as db:
             rows = db.execute('SELECT templates.*,COUNT(articles.id) AS uses FROM templates LEFT JOIN articles ON articles.template_id=templates.id GROUP BY templates.id ORDER BY is_default DESC,name').fetchall()
-        items = ''.join(f'''<tr><td><strong>{esc(row['name'])}</strong>{'<span class="default-mark">Par défaut</span>' if row['is_default'] else ''}</td><td>{row['uses']}</td><td><form method="post" action="/admin/templates">{self.csrf_field()}<input type="hidden" name="action" value="default"><input type="hidden" name="id" value="{row['id']}"><button class="plain-button">Définir par défaut</button></form></td><td>{'' if row['is_default'] else f'<form method="post" action="/admin/templates">{self.csrf_field()}<input type="hidden" name="action" value="delete"><input type="hidden" name="id" value="{row["id"]}"><button class="danger-button" onclick="return confirm(\'Supprimer ce modèle ?\')">Supprimer</button></form>'}</td></tr>''' for row in rows)
+        items = ''.join(f'''<tr><td><strong>{esc(row['name'])}</strong>{'<span class="default-mark">Par défaut</span>' if row['is_default'] else ''}</td><td>{row['uses']}</td><td><form method="post" action="/admin/templates">{self.csrf_field()}<input type="hidden" name="action" value="default"><input type="hidden" name="id" value="{row['id']}"><button class="plain-button">Définir par défaut</button></form></td><td>{'' if row['is_default'] else f'<form method="post" action="/admin/templates">{self.csrf_field()}<input type="hidden" name="action" value="delete"><input type="hidden" name="id" value="{row["id"]}"><button class="danger-button" onclick="return confirm(&#39;Supprimer ce modèle ?&#39;)">Supprimer</button></form>'}</td></tr>''' for row in rows)
         content = f'''<main class="admin-main"><div class="admin-title-row"><div><span class="eyebrow">Structure des articles</span><h1>Modèles</h1><p>Choisissez le modèle proposé par défaut à la création d’un article.</p></div></div><section class="admin-panel"><form method="post" action="/admin/templates" class="template-create">{self.csrf_field()}<input type="hidden" name="action" value="create"><label class="admin-field">Nom du modèle<input name="name" required maxlength="80" placeholder="Ex. Analyse, entretien"></label><label class="admin-field">Contenu de départ <textarea name="body_html" rows="4" placeholder="Structure HTML facultative à insérer dans l’éditeur"></textarea></label><label class="check-option"><input type="checkbox" name="make_default" value="1">Définir comme modèle par défaut</label><button class="primary-button">Créer le modèle</button></form><div class="admin-table-wrap"><table><thead><tr><th>Modèle</th><th>Articles</th><th>Par défaut</th><th></th></tr></thead><tbody>{items}</tbody></table></div></section></main>'''
         self.send_body(self.admin_page('Modèles', content, 'templates'))
 
@@ -1143,7 +1529,7 @@ class AppHandler(BaseHTTPRequestHandler):
         if not self.auth():
             return self.redirect('/admin/login')
         with connect() as db:
-            rows = db.execute("SELECT comments.*,articles.title,articles.slug FROM comments JOIN articles ON articles.id=comments.article_id ORDER BY CASE status WHEN 'pending' THEN 0 ELSE 1 END,comments.created_at DESC").fetchall()
+            rows = db.execute("SELECT comments.*,articles.title,articles.slug FROM comments JOIN articles ON articles.id=comments.article_id ORDER BY CASE comments.status WHEN 'pending' THEN 0 ELSE 1 END,comments.created_at DESC").fetchall()
         items = ''.join(f'''<article class="comment-admin-card"><div class="comment-admin-head"><strong>{esc(row['author'])}</strong><span class="status-badge {row['status']}">{'À modérer' if row['status']=='pending' else 'Publié'}</span><time>{esc(row['created_at'][:10])}</time></div><a href="/article/{quote(row['slug'])}#comments">Sur « {esc(row['title'])} »</a><p>{esc(row['body'])}</p><div class="comment-actions">{f'<form method="post" action="/admin/comments/{row["id"]}">{self.csrf_field()}<input type="hidden" name="action" value="approve"><button class="primary-button">Approuver</button></form>' if row['status']=='pending' else ''}<form method="post" action="/admin/comments/{row['id']}">{self.csrf_field()}<input type="hidden" name="action" value="delete"><button class="danger-button">Supprimer</button></form></div></article>''' for row in rows)
         content = f'''<main class="admin-main"><div class="admin-title-row"><div><span class="eyebrow">Modération</span><h1>Commentaires</h1><p>Les commentaires restent invisibles jusqu’à leur approbation.</p></div></div><section class="comments-admin-list">{items or '<div class="admin-empty">Aucun commentaire reçu.</div>'}</section></main>'''
         self.send_body(self.admin_page('Commentaires', content, 'comments'))
@@ -1168,6 +1554,8 @@ class MultiFields(dict):
 
 def run() -> None:
     initialize()
+    # Prépare les traductions manquantes (accueil, thématiques, publications) pour que le changement de langue soit immédiat.
+    pretranslate_in_background()
     host, port = '127.0.0.1', int(os.environ.get('PORT', '8000'))
     server = ThreadingHTTPServer((host, port), AppHandler)
     print(f'I-Dialogos est disponible sur http://{host}:{port}')

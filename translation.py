@@ -73,7 +73,12 @@ def detect_language(text: str, allowed: set[str] | None = None) -> str | None:
     if not words:
         return None
     candidates = [code for code in STOPWORDS if not allowed or code in allowed]
-    scores = {code: sum(1 for word in words if word in STOPWORDS[code]) for code in candidates}
+    # Un mot partagé par plusieurs langues (« de », « la », « en ») compte moins qu'un mot propre à une seule (« el », « the »).
+    scores = {code: 0.0 for code in candidates}
+    for word in words:
+        owners = [code for code in candidates if word in STOPWORDS[code]]
+        for code in owners:
+            scores[code] += 1 / len(owners)
     for code, hints in ACCENT_HINTS.items():
         if code in scores and hints:
             scores[code] += 0.5 * min(sum(lowered.count(char) for char in hints), 40)

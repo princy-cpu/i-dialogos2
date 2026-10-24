@@ -1,0 +1,137 @@
+# Intégration continue (contrôles + tests) à chaque push et pull request, puis déploiement :
+#   - merge sur main               -> préproduction (automatique)
+#   - publication d'une version vX.Y.Z (tag ou Release GitHub) -> production
+#   - lancement manuel (onglet Actions > CI/CD > Run workflow) -> l'environnement choisi
+name: CI/CD
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      target:
+        description: Environnement à déployer
+        type: choice
+        options: [preprod, production]
+        default: preprod
+
+permissions:
+  contents: read
+
+# Un seul déploiement à la fois ; un nouveau push n'interrompt jamais un déploiement en cours.
+concurrency:
+  group: ${{ github.event_name == 'pull_request' && format('pr-{0}', github.ref) || 'deploiement' }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  lint:
+    name: Analyse statique
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - run: pip install ruff==0.16.9
+      - name: Ruff (Python)
+        run: ruff check --output-format=github .
+      - name: ShellCheck (scripts de déploiement)
+        run: shellcheck -S warning -e SC2011 deploy/*.sh
+
+  test:
+    name: Tests (Python ${{ matrix.python }}, ${{ matrix.database }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # 3.9 : version minimale acceptée sur LWS ; 3.13 : version récente.
+        python: ['3.9', '3.13']
+        database: [mariadb, postgresql]
+    services:
+      mariadb:
+        image: mariadb:10.11
+        env:
+          MARIADB_DATABASE: idialogos_test
+          MARIADB_USER: test
+          MARIADB_PASSWORD: 'Mot%de@passe'
+          MARIADB_ROOT_PASSWORD: root
+        ports: ['3306:3306']
+        options: >-
+          --health-cmd="healthcheck.sh --connect --innodb_initialized"
+          --health-interval=5s --health-timeout=5s --health-retries=20
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_DB: idialogos_test
+          POSTGRES_USER: test
+          POSTGRES_PASSWORD: test
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd="pg_isready -U test" --health-interval=5s --health-timeout=5s --health-retries=20
+    env:
+      # Le mot de passe MariaDB contient % et @ : on vérifie au passage leur encodage dans l'adresse.
+      DATABASE_URL: ${{ matrix.database == 'mariadb' && 'mysql://test:Mot%25de%40passe@127.0.0.1:3306/idialogos_test' || 'postgresql://test:test@127.0.0.1:5432/idialogos_test' }}
+      TRANSLATION_PROVIDER: none
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: ${{ matrix.python }}
+          cache: pip
+          cache-dependency-path: |
+            requirements.txt
+            requirements-dev.txt
+      - run: pip install -r requirements-dev.txt
+      - name: Tests
+        run: python -m pytest -q tests
+
+  deploy-preprod:
+    name: Déploiement préproduction
+    needs: [lint, test]
+    if: >-
+      (github.event_name == 'push' && github.ref == 'refs/heads/main') ||
+      (github.event_name == 'workflow_dispatch' && inputs.target == 'preprod')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: ./.github/actions/deploy
+        with:
+          ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }}
+          ssh-known-hosts: ${{ secrets.SSH_KNOWN_HOSTS }}
+          ssh-host: ${{ vars.SSH_HOST }}
+          ssh-user: ${{ vars.SSH_USER }}
+          ssh-port: ${{ vars.SSH_PORT }}
+          deploy-path: ${{ vars.PREPROD_DEPLOY_PATH }}
+          site-url: ${{ vars.PREPROD_SITE_URL }}
+          venv-path: ${{ vars.PREPROD_VENV_PATH }}
+
+  deploy-production:
+    name: Déploiement production
+    needs: [lint, test]
+    if: >-
+      (github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')) ||
+      (github.event_name == 'workflow_dispatch' && inputs.target == 'production')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      - name: La version doit faire partie de main (donc être passée par la préproduction)
+        run: |
+          git fetch --quiet origin main
+          git merge-base --is-ancestor HEAD origin/main || {
+            echo "::error::Ce commit n'est pas sur main : merger d'abord la pull request, puis publier la version."
+            exit 1
+          }
+      - uses: ./.github/actions/deploy
+        with:
+          ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }}
+          ssh-known-hosts: ${{ secrets.SSH_KNOWN_HOSTS }}
+          ssh-host: ${{ vars.SSH_HOST }}
+          ssh-user: ${{ vars.SSH_USER }}
+          ssh-port: ${{ vars.SSH_PORT }}
+          deploy-path: ${{ vars.PROD_DEPLOY_PATH }}
+          site-url: ${{ vars.PROD_SITE_URL }}
+          venv-path: ${{ vars.PROD_VENV_PATH }}

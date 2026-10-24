@@ -1,0 +1,10 @@
+# Analyse statique (lancée par la CI). Cible : Python 3.9, version minimale acceptée sur LWS.
+target-version = "py39"
+line-length = 200
+extend-exclude = [".venv", "PAGES Site 13.10.26"]
+
+[lint]
+# E9 : erreurs de syntaxe ; F : Pyflakes (noms inconnus, imports inutiles...) ; B : pièges courants.
+select = ["E9", "F", "B"]
+# E501 : longueur des lignes (le HTML est généré sur une ligne).
+ignore = ["E501", "B008", "B904"]

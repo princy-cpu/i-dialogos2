@@ -48,9 +48,9 @@
     'Aucun article publié dans cette langue pour le moment.':'Non ci sono ancora articoli pubblicati in questa lingua.','Aucune actualité ni aucun événement publié dans cette langue pour le moment.':'Non ci sono ancora notizie o eventi pubblicati in questa lingua.'
   });
   const shared = {
-    en: {'Lire l’article':'Read the article','Voir les publications →':'View articles →','← Toutes les publications':'← All articles','← Retour à l’accueil':'← Back to home','← Toutes les actualités':'← All news','Actualité':'News','Événement':'Event','Laisser un commentaire':'Leave a comment','Nom':'Name','Adresse e-mail (facultatif)':'Email address (optional)','Commentaire':'Comment','Envoyer pour modération':'Submit for moderation','Votre commentaire sera visible après validation par l’équipe.':'Your comment will appear once approved by our team.','Soyez le premier à commenter cet article.':'Be the first to comment on this article.','Votre commentaire a été envoyé et sera publié après modération.':'Your comment has been sent and will be published after moderation.','Aucun article publié pour le moment.':'No published articles yet.','Aucune actualité ni aucun événement publié pour le moment.':'No published news or events yet.'},
-    es: {'Lire l’article':'Leer el artículo','Voir les publications →':'Ver los artículos →','← Toutes les publications':'← Todos los artículos','← Retour à l’accueil':'← Volver al inicio','← Toutes les actualités':'← Todas las noticias','Actualité':'Noticia','Événement':'Evento','Laisser un commentaire':'Dejar un comentario','Nom':'Nombre','Adresse e-mail (facultatif)':'Correo electrónico (opcional)','Commentaire':'Comentario','Envoyer pour modération':'Enviar para moderación','Votre commentaire sera visible après validation par l’équipe.':'Su comentario será visible tras la validación del equipo.','Soyez le premier à commenter cet article.':'Sea el primero en comentar este artículo.','Votre commentaire a été envoyé et sera publié après modération.':'Su comentario ha sido enviado y se publicará tras la moderación.','Aucun article publié pour le moment.':'Todavía no hay artículos publicados.','Aucune actualité ni aucun événement publié pour le moment.':'Todavía no hay noticias ni eventos publicados.'},
-    it: {'Lire l’article':'Leggi l’articolo','Voir les publications →':'Vedi gli articoli →','← Toutes les publications':'← Tutti gli articoli','← Retour à l’accueil':'← Torna alla home','← Toutes les actualités':'← Tutte le notizie','Actualité':'Notizia','Événement':'Evento','Laisser un commentaire':'Lascia un commento','Nom':'Nome','Adresse e-mail (facultatif)':'Indirizzo email (facoltativo)','Commentaire':'Commento','Envoyer pour modération':'Invia per la moderazione','Votre commentaire sera visible après validation par l’équipe.':'Il tuo commento sarà visibile dopo l’approvazione del team.','Soyez le premier à commenter cet article.':'Sii il primo a commentare questo articolo.','Votre commentaire a été envoyé et sera publié après modération.':'Il tuo commento è stato inviato e sarà pubblicato dopo la moderazione.','Aucun article publié pour le moment.':'Non ci sono ancora articoli pubblicati.','Aucune actualité ni aucun événement publié pour le moment.':'Non ci sono ancora notizie o eventi pubblicati.'}
+    en: {'Lire l’article':'Read the article','Voir plus d’articles':'More articles','Voir plus d’informations':'More information','Explorer nos thématiques':'Explore our topics','Autres thématiques':'Other topics','Analyses et contributions':'Analysis and contributions','← Accueil':'← Home','Toutes les analyses →':'All analysis →','Aucune publication pour cette thématique pour le moment.':'No articles on this topic yet.','Voir les publications →':'View articles →','← Toutes les publications':'← All articles','← Retour à l’accueil':'← Back to home','← Toutes les actualités':'← All news','Actualité':'News','Événement':'Event','Laisser un commentaire':'Leave a comment','Nom':'Name','Adresse e-mail (facultatif)':'Email address (optional)','Commentaire':'Comment','Envoyer pour modération':'Submit for moderation','Votre commentaire sera visible après validation par l’équipe.':'Your comment will appear once approved by our team.','Soyez le premier à commenter cet article.':'Be the first to comment on this article.','Votre commentaire a été envoyé et sera publié après modération.':'Your comment has been sent and will be published after moderation.','Aucun article publié pour le moment.':'No published articles yet.','Aucune actualité ni aucun événement publié pour le moment.':'No published news or events yet.'},
+    es: {'Lire l’article':'Leer el artículo','Voir plus d’articles':'Más artículos','Voir plus d’informations':'Más información','Explorer nos thématiques':'Explorar nuestros temas','Autres thématiques':'Otros temas','Analyses et contributions':'Análisis y contribuciones','← Accueil':'← Inicio','Toutes les analyses →':'Todos los análisis →','Aucune publication pour cette thématique pour le moment.':'Todavía no hay publicaciones sobre este tema.','Voir les publications →':'Ver los artículos →','← Toutes les publications':'← Todos los artículos','← Retour à l’accueil':'← Volver al inicio','← Toutes les actualités':'← Todas las noticias','Actualité':'Noticia','Événement':'Evento','Laisser un commentaire':'Dejar un comentario','Nom':'Nombre','Adresse e-mail (facultatif)':'Correo electrónico (opcional)','Commentaire':'Comentario','Envoyer pour modération':'Enviar para moderación','Votre commentaire sera visible après validation par l’équipe.':'Su comentario será visible tras la validación del equipo.','Soyez le premier à commenter cet article.':'Sea el primero en comentar este artículo.','Votre commentaire a été envoyé et sera publié après modération.':'Su comentario ha sido enviado y se publicará tras la moderación.','Aucun article publié pour le moment.':'Todavía no hay artículos publicados.','Aucune actualité ni aucun événement publié pour le moment.':'Todavía no hay noticias ni eventos publicados.'},
+    it: {'Lire l’article':'Leggi l’articolo','Voir plus d’articles':'Altri articoli','Voir plus d’informations':'Maggiori informazioni','Explorer nos thématiques':'Esplora i nostri temi','Autres thématiques':'Altri temi','Analyses et contributions':'Analisi e contributi','← Accueil':'← Home','Toutes les analyses →':'Tutte le analisi →','Aucune publication pour cette thématique pour le moment.':'Non ci sono ancora pubblicazioni su questo tema.','Voir les publications →':'Vedi gli articoli →','← Toutes les publications':'← Tutti gli articoli','← Retour à l’accueil':'← Torna alla home','← Toutes les actualités':'← Tutte le notizie','Actualité':'Notizia','Événement':'Evento','Laisser un commentaire':'Lascia un commento','Nom':'Nome','Adresse e-mail (facultatif)':'Indirizzo email (facoltativo)','Commentaire':'Commento','Envoyer pour modération':'Invia per la moderazione','Votre commentaire sera visible après validation par l’équipe.':'Il tuo commento sarà visibile dopo l’approvazione del team.','Soyez le premier à commenter cet article.':'Sii il primo a commentare questo articolo.','Votre commentaire a été envoyé et sera publié après modération.':'Il tuo commento è stato inviato e sarà pubblicato dopo la moderazione.','Aucun article publié pour le moment.':'Non ci sono ancora articoli pubblicati.','Aucune actualité ni aucun événement publié pour le moment.':'Non ci sono ancora notizie o eventi pubblicati.'}
   };
   Object.entries(shared).forEach(([code, entries]) => Object.assign(translations[code], entries));
   const textOriginals = new WeakMap();
@@ -90,7 +90,7 @@
   const createPicker = async () => {
     let select = document.querySelector('#language-select');
     if (!select) {
-      const wrapper = document.createElement('label');
+      const wrapper = document.createElement('div');
       wrapper.className = 'language-picker language-floating';
       wrapper.innerHTML = '<span class="sr-only">Choose language</span><select id="language-select" aria-label="Choose language"></select>';
       document.body.append(wrapper);
@@ -106,16 +106,132 @@
     const cookieCode = getCookie('idialogos_lang');
     const defaultCode = languages.find(language => language.is_default)?.code || 'fr';
     const selected = [urlCode, cookieCode].find(code => languages.some(language => language.code === code)) || defaultCode;
-    select.innerHTML = languages.map(language => `<option value="${language.code}">${language.label}</option>`).join('');
+    select.replaceChildren(...languages.map(language => new Option(language.label, language.code)));
     select.value = selected;
-    translate(selected);
-    select.addEventListener('change', () => {
-      document.cookie = `idialogos_lang=${encodeURIComponent(select.value)}; Path=/; Max-Age=31536000; SameSite=Lax`;
+    const choose = code => {
+      document.cookie = `idialogos_lang=${encodeURIComponent(code)}; Path=/; Max-Age=31536000; SameSite=Lax`;
       // Les articles sont traduits par le serveur : on recharge sans ?lang ni ?original pour appliquer le nouveau choix.
       const url = new URL(location.href);
       url.searchParams.delete('lang');
       url.searchParams.delete('original');
-      location.href = url.toString();
+      // Si seule l'ancre (#thematiques…) est identique, le navigateur ne ferait que défiler : on force le rechargement.
+      const sameDocument = url.origin + url.pathname + url.search === location.origin + location.pathname + location.search;
+      if (sameDocument) location.reload();
+      else location.assign(url.toString());
+    };
+    select.addEventListener('change', () => choose(select.value));
+    buildFlagSwitcher(select, languages, selected, choose);
+    translate(selected);
+  };
+
+  // Menu des langues avec drapeaux (une liste <select> ne peut pas afficher d'images).
+  const FLAGS = {fr:'fr', en:'gb', es:'es', it:'it', de:'de', pt:'pt'};
+  const flagElement = code => {
+    if (FLAGS[code]) {
+      const image = document.createElement('img');
+      image.className = 'lang-flag';
+      image.src = `/assets/flags/${FLAGS[code]}.svg`;
+      image.alt = '';
+      image.width = 21;
+      image.height = 14;
+      return image;
+    }
+    const badge = document.createElement('span');
+    badge.className = 'lang-flag lang-flag-code';
+    badge.textContent = code.toUpperCase();
+    return badge;
+  };
+  const buildFlagSwitcher = (select, languages, selected, choose) => {
+    const switcher = document.createElement('div');
+    switcher.className = 'lang-switch';
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'lang-switch-button';
+    button.setAttribute('aria-haspopup', 'listbox');
+    button.setAttribute('aria-expanded', 'false');
+    button.setAttribute('aria-label', 'Choisir la langue');
+    const code = document.createElement('span');
+    code.className = 'lang-switch-code';
+    code.textContent = selected.toUpperCase();
+    const caret = document.createElement('span');
+    caret.className = 'lang-switch-caret';
+    caret.setAttribute('aria-hidden', 'true');
+    caret.textContent = '▾';
+    button.append(flagElement(selected), code, caret);
+    const list = document.createElement('ul');
+    list.className = 'lang-switch-list';
+    list.setAttribute('role', 'listbox');
+    list.setAttribute('aria-label', 'Choisir la langue');
+    list.tabIndex = -1;
+    list.hidden = true;
+    const options = languages.map(language => {
+      const option = document.createElement('li');
+      option.id = `lang-option-${language.code}`;
+      option.setAttribute('role', 'option');
+      option.setAttribute('aria-selected', String(language.code === selected));
+      option.lang = language.code;
+      option.dataset.code = language.code;
+      const label = document.createElement('span');
+      label.textContent = language.label;
+      option.append(flagElement(language.code), label);
+      return option;
+    });
+    list.append(...options);
+    switcher.append(button, list);
+    select.hidden = true;
+    select.closest('.language-picker')?.classList.add('has-flags');
+    select.after(switcher);
+
+    let active = Math.max(0, options.findIndex(option => option.dataset.code === selected));
+    const highlight = index => {
+      active = (index + options.length) % options.length;
+      options.forEach((option, position) => option.classList.toggle('is-active', position === active));
+      list.setAttribute('aria-activedescendant', options[active].id);
+      options[active].scrollIntoView({block: 'nearest'});
+    };
+    const open = () => {
+      list.hidden = false;
+      button.setAttribute('aria-expanded', 'true');
+      highlight(active);
+      list.focus();
+    };
+    const close = (focusButton = true) => {
+      list.hidden = true;
+      button.setAttribute('aria-expanded', 'false');
+      if (focusButton) button.focus();
+    };
+    const pick = index => {
+      const picked = options[index].dataset.code;
+      if (picked === selected) close();
+      else choose(picked);
+    };
+    button.addEventListener('click', () => (list.hidden ? open() : close()));
+    button.addEventListener('keydown', event => {
+      if (['ArrowDown', 'ArrowUp'].includes(event.key)) {
+        event.preventDefault();
+        open();
+      }
+    });
+    list.addEventListener('keydown', event => {
+      if (event.key === 'ArrowDown') highlight(active + 1);
+      else if (event.key === 'ArrowUp') highlight(active - 1);
+      else if (event.key === 'Home') highlight(0);
+      else if (event.key === 'End') highlight(options.length - 1);
+      else if (event.key === 'Enter' || event.key === ' ') pick(active);
+      else if (event.key === 'Escape' || event.key === 'Tab') close(event.key === 'Escape');
+      else return;
+      event.preventDefault();
+    });
+    list.addEventListener('click', event => {
+      const option = event.target.closest('[role="option"]');
+      if (option) pick(options.indexOf(option));
+    });
+    list.addEventListener('mousemove', event => {
+      const option = event.target.closest('[role="option"]');
+      if (option) highlight(options.indexOf(option));
+    });
+    document.addEventListener('click', event => {
+      if (!list.hidden && !switcher.contains(event.target)) close(false);
     });
   };
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', createPicker, {once:true});
