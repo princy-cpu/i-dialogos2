@@ -11,7 +11,7 @@ import threading
 import time
 import unicodedata
 import uuid
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 from email import policy
 from email.parser import BytesParser
 from html.parser import HTMLParser
@@ -20,15 +20,27 @@ from http.cookies import SimpleCookie
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, quote, unquote, urlparse
-import psycopg
-from psycopg.rows import dict_row
 
 from translation import detect_language, html_to_text, notice_texts, provider_name, translate_records
 
 
 ROOT = Path(__file__).resolve().parent
 DATABASE_URL = os.environ.get('DATABASE_URL', '').strip()
+# Moteur choisi d'après l'adresse : postgresql://… (poste local) ou mysql://… (hébergement LWS cPanel).
+DB_KIND = 'mysql' if DATABASE_URL.lower().startswith(('mysql://', 'mysql+pymysql://', 'mariadb://')) else 'postgresql'
+if DB_KIND == 'mysql':
+    import pymysql
+    import pymysql.cursors
+    DBIntegrityError: type[Exception] = pymysql.err.IntegrityError
+else:
+    import psycopg
+    from psycopg.rows import dict_row
+    DBIntegrityError = psycopg.IntegrityError
+# En production (HTTPS), le cookie de session n'est envoyé que sur une connexion chiffrée.
+COOKIE_SECURE = '; Secure' if os.environ.get('COOKIE_SECURE', '').strip() == '1' else ''
 UPLOAD_DIR = ROOT / 'uploads'
+# Version déployée (identifiant du commit), écrite dans le fichier VERSION par le script de déploiement.
+APP_VERSION = (ROOT / 'VERSION').read_text(encoding='utf-8').strip() if (ROOT / 'VERSION').exists() else 'dev'
 MAX_REQUEST = 12 * 1024 * 1024
 COOKIE_NAME = 'idialogos_session'
 SESSION_TTL = 12 * 60 * 60
@@ -43,7 +55,9 @@ def now_iso() -> str:
 
 
 class Database:
-    def __init__(self, connection: psycopg.Connection) -> None:
+    """Connexion PostgreSQL. Les requêtes utilisent `?` comme marqueur de paramètre."""
+
+    def __init__(self, connection) -> None:
         self.connection = connection
 
     def __enter__(self) -> 'Database':
@@ -61,14 +75,212 @@ class Database:
         return self.connection.execute(query, params)
 
 
-def connect() -> Database:
+class MySQLResult:
+    """Résultat d'une requête MySQL, avec les mêmes méthodes que le curseur psycopg."""
+
+    def __init__(self, rows: list[dict], rowcount: int) -> None:
+        self.rows, self.rowcount = rows, rowcount
+
+    def fetchone(self) -> dict | None:
+        return self.rows[0] if self.rows else None
+
+    def fetchall(self) -> list[dict]:
+        return list(self.rows)
+
+
+_MYSQL_PLACEHOLDER = re.compile(r'=\s*ANY\(\?\)|\?')
+
+
+class MySQLDatabase:
+    """Connexion MySQL/MariaDB qui accepte les requêtes écrites pour PostgreSQL dans ce projet :
+    `?`, `INSERT OR IGNORE`, `= ANY(?)` avec une liste et `RETURNING id`."""
+
+    def __init__(self, connection) -> None:
+        self.connection = connection
+
+    def __enter__(self) -> 'MySQLDatabase':
+        return self
+
+    def __exit__(self, exc_type, *args: object) -> bool:
+        try:
+            if exc_type is None:
+                self.connection.commit()
+            else:
+                self.connection.rollback()
+        finally:
+            self.connection.close()
+        return False
+
+    def execute(self, query: str, params: tuple | list = ()):
+        query = query.strip()
+        returning = re.search(r'\s+RETURNING\s+id\s*$', query, re.IGNORECASE)
+        if returning:
+            query = query[:returning.start()]
+        query = re.sub(r'INSERT\s+OR\s+IGNORE\s+INTO', 'INSERT IGNORE INTO', query, flags=re.IGNORECASE)
+        query = query.replace('%', '%%')
+        values = iter(params)
+        args: list = []
+
+        def placeholder(match: re.Match) -> str:
+            value = next(values)
+            if match.group(0) == '?':
+                args.append(value)
+                return '%s'
+            items = list(value)
+            if not items:
+                return 'IN (NULL)'
+            args.extend(items)
+            return 'IN (' + ','.join(['%s'] * len(items)) + ')'
+
+        query = _MYSQL_PLACEHOLDER.sub(placeholder, query)
+        with self.connection.cursor() as cursor:
+            cursor.execute(query, tuple(args))
+            if returning:
+                return MySQLResult([{'id': cursor.lastrowid}], cursor.rowcount)
+            rows = list(cursor.fetchall()) if cursor.description else []
+            return MySQLResult(rows, cursor.rowcount)
+
+
+def mysql_settings(url: str) -> dict:
+    parsed = urlparse(url)
+    return {
+        'host': parsed.hostname or 'localhost', 'port': parsed.port or 3306,
+        'user': unquote(parsed.username or ''), 'password': unquote(parsed.password or ''),
+        'database': unquote(parsed.path.lstrip('/')), 'charset': 'utf8mb4',
+    }
+
+
+def connect() -> Database | MySQLDatabase:
     if not DATABASE_URL:
-        raise RuntimeError('Configurez DATABASE_URL avec l’adresse de votre base PostgreSQL.')
+        raise RuntimeError('Configurez DATABASE_URL avec l’adresse de votre base PostgreSQL ou MySQL.')
+    if DB_KIND == 'mysql':
+        connection = pymysql.connect(**mysql_settings(DATABASE_URL), cursorclass=pymysql.cursors.DictCursor, autocommit=False)
+        return MySQLDatabase(connection)
     return Database(psycopg.connect(DATABASE_URL, row_factory=dict_row))
 
 
+MYSQL_TABLE_OPTIONS = 'ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci'
+# Identifiants, jetons et adresses : comparaison exacte (sensible à la casse et aux accents), comme sous PostgreSQL.
+MYSQL_KEY = 'CHARACTER SET utf8mb4 COLLATE utf8mb4_bin'
+MYSQL_SCHEMA = f'''
+  CREATE TABLE IF NOT EXISTS users (
+    id BIGINT AUTO_INCREMENT PRIMARY KEY, username VARCHAR(190) NOT NULL UNIQUE,
+    password_hash VARCHAR(255) NOT NULL, password_salt VARCHAR(255) NOT NULL, created_at VARCHAR(40) NOT NULL
+  ) {MYSQL_TABLE_OPTIONS};
+  CREATE TABLE IF NOT EXISTS languages (
+    code VARCHAR(16) {MYSQL_KEY} PRIMARY KEY, label VARCHAR(100) NOT NULL, enabled INT NOT NULL DEFAULT 1,
+    is_default INT NOT NULL DEFAULT 0
+  ) {MYSQL_TABLE_OPTIONS};
+  CREATE TABLE IF NOT EXISTS sessions (
+    token_hash VARCHAR(128) {MYSQL_KEY} PRIMARY KEY, user_id BIGINT NULL,
+    csrf VARCHAR(128) {MYSQL_KEY} NOT NULL, expires_at BIGINT NOT NULL,
+    CONSTRAINT fk_sessions_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+  ) {MYSQL_TABLE_OPTIONS};
+  CREATE TABLE IF NOT EXISTS categories (
+    id BIGINT AUTO_INCREMENT PRIMARY KEY, name VARCHAR(190) NOT NULL UNIQUE,
+    slug VARCHAR(190) {MYSQL_KEY} NOT NULL UNIQUE, created_at VARCHAR(40) NOT NULL
+  ) {MYSQL_TABLE_OPTIONS};
+  CREATE TABLE IF NOT EXISTS tags (
+    id BIGINT AUTO_INCREMENT PRIMARY KEY, name VARCHAR(190) NOT NULL UNIQUE,
+    slug VARCHAR(190) {MYSQL_KEY} NOT NULL UNIQUE, created_at VARCHAR(40) NOT NULL
+  ) {MYSQL_TABLE_OPTIONS};
+  CREATE TABLE IF NOT EXISTS templates (
+    id BIGINT AUTO_INCREMENT PRIMARY KEY, name VARCHAR(190) NOT NULL UNIQUE, body_html MEDIUMTEXT NOT NULL,
+    is_default INT NOT NULL DEFAULT 0, created_at VARCHAR(40) NOT NULL
+  ) {MYSQL_TABLE_OPTIONS};
+  CREATE TABLE IF NOT EXISTS articles (
+    id VARCHAR(64) {MYSQL_KEY} PRIMARY KEY, title TEXT NOT NULL, slug VARCHAR(190) {MYSQL_KEY} NOT NULL UNIQUE,
+    excerpt TEXT NOT NULL, body_html MEDIUMTEXT NOT NULL, featured_image VARCHAR(1000) NOT NULL DEFAULT '',
+    status VARCHAR(20) NOT NULL DEFAULT 'draft', author VARCHAR(255) NOT NULL, template_id BIGINT NULL,
+    comments_enabled INT NOT NULL DEFAULT 1, created_at VARCHAR(40) NOT NULL, updated_at VARCHAR(40) NOT NULL,
+    published_at VARCHAR(40) NULL, language VARCHAR(16) NOT NULL DEFAULT 'fr',
+    source_url VARCHAR(1000) NOT NULL DEFAULT '',
+    CONSTRAINT fk_articles_template FOREIGN KEY (template_id) REFERENCES templates(id) ON DELETE SET NULL
+  ) {MYSQL_TABLE_OPTIONS};
+  CREATE TABLE IF NOT EXISTS article_categories (
+    article_id VARCHAR(64) {MYSQL_KEY} NOT NULL, category_id BIGINT NOT NULL,
+    PRIMARY KEY(article_id, category_id),
+    CONSTRAINT fk_ac_article FOREIGN KEY (article_id) REFERENCES articles(id) ON DELETE CASCADE,
+    CONSTRAINT fk_ac_category FOREIGN KEY (category_id) REFERENCES categories(id) ON DELETE CASCADE
+  ) {MYSQL_TABLE_OPTIONS};
+  CREATE TABLE IF NOT EXISTS article_tags (
+    article_id VARCHAR(64) {MYSQL_KEY} NOT NULL, tag_id BIGINT NOT NULL,
+    PRIMARY KEY(article_id, tag_id),
+    CONSTRAINT fk_at_article FOREIGN KEY (article_id) REFERENCES articles(id) ON DELETE CASCADE,
+    CONSTRAINT fk_at_tag FOREIGN KEY (tag_id) REFERENCES tags(id) ON DELETE CASCADE
+  ) {MYSQL_TABLE_OPTIONS};
+  CREATE TABLE IF NOT EXISTS comments (
+    id BIGINT AUTO_INCREMENT PRIMARY KEY, article_id VARCHAR(64) {MYSQL_KEY} NOT NULL,
+    author VARCHAR(255) NOT NULL, email VARCHAR(255) NOT NULL DEFAULT '', body TEXT NOT NULL,
+    status VARCHAR(20) NOT NULL DEFAULT 'pending', created_at VARCHAR(40) NOT NULL,
+    CONSTRAINT fk_comments_article FOREIGN KEY (article_id) REFERENCES articles(id) ON DELETE CASCADE
+  ) {MYSQL_TABLE_OPTIONS};
+  CREATE TABLE IF NOT EXISTS news_events (
+    id BIGINT AUTO_INCREMENT PRIMARY KEY, kind VARCHAR(20) NOT NULL DEFAULT 'news', title TEXT NOT NULL,
+    slug VARCHAR(190) {MYSQL_KEY} NOT NULL UNIQUE, summary TEXT NOT NULL, body_html MEDIUMTEXT NOT NULL,
+    image_url VARCHAR(1000) NOT NULL DEFAULT '', location VARCHAR(500) NOT NULL DEFAULT '',
+    starts_at VARCHAR(40) NOT NULL DEFAULT '', ends_at VARCHAR(40) NOT NULL DEFAULT '',
+    status VARCHAR(20) NOT NULL DEFAULT 'draft', created_at VARCHAR(40) NOT NULL, updated_at VARCHAR(40) NOT NULL,
+    language VARCHAR(16) NOT NULL DEFAULT 'fr', source_url VARCHAR(1000) NOT NULL DEFAULT ''
+  ) {MYSQL_TABLE_OPTIONS};
+  CREATE TABLE IF NOT EXISTS translations (
+    hash VARCHAR(64) {MYSQL_KEY} NOT NULL, target VARCHAR(16) {MYSQL_KEY} NOT NULL,
+    translated MEDIUMTEXT NOT NULL, created_at VARCHAR(40) NOT NULL,
+    PRIMARY KEY(hash, target)
+  ) {MYSQL_TABLE_OPTIONS}
+'''
+
+
+# Migrations versionnées : chaque évolution de structure de la base est ajoutée ici, à la suite,
+# avec un numéro croissant et sa requête pour chaque moteur. Elles sont appliquées une seule fois,
+# dans l'ordre, au démarrage et lors de chaque déploiement (`python migrate.py`).
+# Exemple :
+#   (2, 'Ajoute le sous-titre des articles', {
+#       'postgresql': ["ALTER TABLE articles ADD COLUMN IF NOT EXISTS subtitle TEXT NOT NULL DEFAULT ''"],
+#       'mysql': ["ALTER TABLE articles ADD COLUMN subtitle VARCHAR(300) NOT NULL DEFAULT ''"],
+#   }),
+MIGRATIONS: list[tuple[int, str, dict[str, list[str]]]] = [
+    (1, 'Structure initiale (tables créées par initialize)', {'postgresql': [], 'mysql': []}),
+]
+
+
+def schema_version(db) -> int:
+    row = db.execute('SELECT MAX(version) AS version FROM schema_version').fetchone()
+    return int(row['version'] or 0) if row else 0
+
+
+def apply_migrations() -> list[int]:
+    """Applique les migrations manquantes. Renvoie les numéros appliqués."""
+    with connect() as db:
+        db.execute('CREATE TABLE IF NOT EXISTS schema_version (version INTEGER PRIMARY KEY, description VARCHAR(255) NOT NULL, applied_at VARCHAR(40) NOT NULL)')
+        current = schema_version(db)
+    applied = []
+    for version, description, statements in sorted(MIGRATIONS):
+        if version <= current:
+            continue
+        # Une connexion par migration : elle est enregistrée seulement si toutes ses requêtes réussissent.
+        with connect() as db:
+            for statement in statements.get(DB_KIND, []):
+                db.execute(statement)
+            db.execute('INSERT INTO schema_version(version,description,applied_at) VALUES(?,?,?)', (version, description, now_iso()))
+        applied.append(version)
+    return applied
+
+
 def initialize() -> None:
+    create_baseline()
+    apply_migrations()
+
+
+def create_baseline() -> None:
     UPLOAD_DIR.mkdir(exist_ok=True)
+    if DB_KIND == 'mysql':
+        with connect() as db:
+            for statement in MYSQL_SCHEMA.split(';'):
+                if statement.strip():
+                    db.execute(statement)
+            seed_defaults(db)
+        return
     with connect() as db:
         schema = '''
           CREATE TABLE IF NOT EXISTS users (
@@ -136,17 +348,22 @@ def initialize() -> None:
         # Adresse d'origine des contenus importés de l'ancien site (évite les doublons à la réimportation).
         db.execute("ALTER TABLE articles ADD COLUMN IF NOT EXISTS source_url TEXT NOT NULL DEFAULT ''")
         db.execute("ALTER TABLE news_events ADD COLUMN IF NOT EXISTS source_url TEXT NOT NULL DEFAULT ''")
-        for code, label, is_default in [('fr', 'Français', 1), ('en', 'English', 0), ('es', 'Español', 0), ('it', 'Italiano', 0)]:
-            db.execute('INSERT OR IGNORE INTO languages(code,label,enabled,is_default) VALUES(?,?,1,?)', (code, label, is_default))
-        defaults = [
-            'IA – Intelligence artificielle', 'Jeunesse', 'Médias et pluralisme', 'Francophonies',
-            'Démocraties', 'Ultramarins', 'Eau, climat et environnement', 'Géopolitique', 'Santé et développement'
-        ]
-        for name in defaults:
-            db.execute('INSERT OR IGNORE INTO categories(name, slug, created_at) VALUES(?,?,?)', (name, slugify(name), now_iso()))
-        if db.execute('SELECT COUNT(*) AS total FROM templates').fetchone()['total'] == 0:
-            skeleton = '<h2>Introduction</h2><p>Présentez le sujet et la question principale.</p><h2>Développement</h2><p>Développez votre analyse et vos arguments.</p><h2>Conclusion</h2><p>Résumez les idées essentielles.</p>'
-            db.execute('INSERT INTO templates(name, body_html, is_default, created_at) VALUES(?,?,1,?)', ('Modèle par défaut', skeleton, now_iso()))
+        seed_defaults(db)
+
+
+def seed_defaults(db: Database | MySQLDatabase) -> None:
+    """Langues, catégories et modèle d'article créés au premier démarrage."""
+    for code, label, is_default in [('fr', 'Français', 1), ('en', 'English', 0), ('es', 'Español', 0), ('it', 'Italiano', 0)]:
+        db.execute('INSERT OR IGNORE INTO languages(code,label,enabled,is_default) VALUES(?,?,1,?)', (code, label, is_default))
+    defaults = [
+        'IA – Intelligence artificielle', 'Jeunesse', 'Médias et pluralisme', 'Francophonies',
+        'Démocraties', 'Ultramarins', 'Eau, climat et environnement', 'Géopolitique', 'Santé et développement'
+    ]
+    for name in defaults:
+        db.execute('INSERT OR IGNORE INTO categories(name, slug, created_at) VALUES(?,?,?)', (name, slugify(name), now_iso()))
+    if db.execute('SELECT COUNT(*) AS total FROM templates').fetchone()['total'] == 0:
+        skeleton = '<h2>Introduction</h2><p>Présentez le sujet et la question principale.</p><h2>Développement</h2><p>Développez votre analyse et vos arguments.</p><h2>Conclusion</h2><p>Résumez les idées essentielles.</p>'
+        db.execute('INSERT INTO templates(name, body_html, is_default, created_at) VALUES(?,?,1,?)', ('Modèle par défaut', skeleton, now_iso()))
 
 
 def default_language(db: Database) -> str:
@@ -386,6 +603,21 @@ class AppHandler(BaseHTTPRequestHandler):
     def log_message(self, fmt: str, *args: object) -> None:
         print(f'{self.address_string()} - {fmt % args}')
 
+    def healthz(self) -> None:
+        """Contrôle de santé utilisé après chaque déploiement : base joignable et version en ligne."""
+        report = {'status': 'ok', 'version': APP_VERSION, 'database': DB_KIND}
+        try:
+            with connect() as db:
+                db.execute('SELECT 1').fetchone()
+                report['schema'] = schema_version(db)
+        except Exception as exc:  # noqa: BLE001 (toute erreur de base rend le site indisponible)
+            report.update(status='error', error=type(exc).__name__)
+        # Une base plus récente que le code est acceptée : c'est le cas juste après un retour arrière.
+        status = 200 if report['status'] == 'ok' and report.get('schema', 0) >= max(v for v, _, _ in MIGRATIONS) else 503
+        if status == 503 and report['status'] == 'ok':
+            report.update(status='error', error='migrations en attente')
+        self.send_body(json.dumps(report), status, 'application/json; charset=utf-8', [('Cache-Control', 'no-store')])
+
     def send_body(self, body: str | bytes, status: int = 200, content_type: str = 'text/html; charset=utf-8', headers: list[tuple[str, str]] | None = None) -> None:
         data = body.encode('utf-8') if isinstance(body, str) else body
         self.send_response(status)
@@ -473,7 +705,7 @@ class AppHandler(BaseHTTPRequestHandler):
             token = secrets.token_urlsafe(32)
             csrf = secrets.token_urlsafe(32)
             db.execute('INSERT INTO sessions(token_hash,user_id,csrf,expires_at) VALUES(?,?,?,?)', (hashlib.sha256(token.encode()).hexdigest(), None, csrf, int(time.time()) + SESSION_TTL))
-            self._new_cookie = f'{COOKIE_NAME}={token}; HttpOnly; SameSite=Lax; Path=/; Max-Age={SESSION_TTL}'
+            self._new_cookie = f'{COOKIE_NAME}={token}; HttpOnly; SameSite=Lax; Path=/; Max-Age={SESSION_TTL}{COOKIE_SECURE}'
             return db.execute('SELECT sessions.*, NULL AS username FROM sessions WHERE token_hash=?', (hashlib.sha256(token.encode()).hexdigest(),)).fetchone()
 
     def auth(self) -> dict | None:
@@ -517,6 +749,8 @@ class AppHandler(BaseHTTPRequestHandler):
     def do_GET(self) -> None:
         parsed = urlparse(self.path)
         path = unquote(parsed.path)
+        if path == '/healthz':
+            return self.healthz()
         if path == '/api/languages':
             with connect() as db:
                 rows = db.execute('SELECT code,label,is_default FROM languages WHERE enabled=1 ORDER BY is_default DESC,label').fetchall()
@@ -686,7 +920,7 @@ class AppHandler(BaseHTTPRequestHandler):
                 db.execute('INSERT INTO users(username,password_hash,password_salt,created_at) VALUES(?,?,?,?)', (username, digest.hex(), salt.hex(), now_iso()))
                 user_id = db.execute('SELECT id FROM users WHERE username=?', (username,)).fetchone()['id']
                 self.create_authenticated_session(db, user_id)
-        except psycopg.IntegrityError:
+        except DBIntegrityError:
             return self.send_body(self.site_page('Configuration', '<main class="auth-wrap"><div class="auth-card"><h1>Un compte existe déjà</h1><a href="/admin/login">Se connecter</a></div></main>'), 409)
         return self.redirect('/admin', [self._new_cookie])
 
@@ -694,7 +928,7 @@ class AppHandler(BaseHTTPRequestHandler):
         token = secrets.token_urlsafe(32)
         csrf = secrets.token_urlsafe(32)
         db.execute('INSERT INTO sessions(token_hash,user_id,csrf,expires_at) VALUES(?,?,?,?)', (hashlib.sha256(token.encode()).hexdigest(), user_id, csrf, int(time.time()) + SESSION_TTL))
-        self._new_cookie = f'{COOKIE_NAME}={token}; HttpOnly; SameSite=Lax; Path=/; Max-Age={SESSION_TTL}'
+        self._new_cookie = f'{COOKIE_NAME}={token}; HttpOnly; SameSite=Lax; Path=/; Max-Age={SESSION_TTL}{COOKIE_SECURE}'
 
     def login_page(self) -> None:
         with connect() as db:
@@ -730,7 +964,7 @@ class AppHandler(BaseHTTPRequestHandler):
         if token:
             with connect() as db:
                 db.execute('DELETE FROM sessions WHERE token_hash=?', (hashlib.sha256(token.encode()).hexdigest(),))
-        return self.redirect('/', [f'{COOKIE_NAME}=; HttpOnly; SameSite=Lax; Path=/; Max-Age=0'])
+        return self.redirect('/', [f'{COOKIE_NAME}=; HttpOnly; SameSite=Lax; Path=/; Max-Age=0{COOKIE_SECURE}'])
 
     def public_home(self) -> None:
         with connect() as db:
@@ -756,7 +990,8 @@ class AppHandler(BaseHTTPRequestHandler):
         categories.sort(key=lambda row: row['name'].casefold())
         tags.sort(key=lambda row: row['name'].casefold())
         cards = ''.join(self.public_card(article, sorted(article_cats.get(article['id'], []), key=lambda row: row['name'].casefold()), sorted(article_tags.get(article['id'], []), key=lambda row: row['name'].casefold())) for article in articles)
-        feed = f'<div class="public-article-grid" id="public-feed">{cards or "<div class=\"empty-state\" data-empty=\"articles\"></div>"}</div>'
+        cards = cards or '<div class="empty-state" data-empty="articles"></div>'
+        feed = f'<div class="public-article-grid" id="public-feed">{cards}</div>'
         theme_options = '<option value="">Tous les thèmes</option>' + ''.join(f'<option value="{esc(row["slug"])}">{esc(row["name"])}</option>' for row in categories)
         tag_options = '<option value="">Tous les tags</option>' + ''.join(f'<option value="{esc(row["slug"])}">{esc(row["name"])}</option>' for row in tags)
         page = (ROOT / 'index.html').read_text(encoding='utf-8')
@@ -911,7 +1146,7 @@ class AppHandler(BaseHTTPRequestHandler):
         image = f'<img class="article-featured" src="{esc(article["featured_image"])}" alt="Image mise en avant de l’article">' if article['featured_image'] else ''
         comments_block = ''
         if article['comments_enabled']:
-            session = self.session(create=True)
+            self.session(create=True)  # crée la session porteuse du jeton anti-falsification du formulaire
             comment_items = ''.join(f'<article class="comment"><strong>{esc(row["author"])}</strong><time>{esc(row["created_at"][:10])}</time><p>{esc(row["body"])}</p></article>' for row in comments)
             form = f'''<form class="comment-form" method="post" action="/article/{quote(slug)}/comment">{self.csrf_field()}<h3>Laisser un commentaire</h3><label>Nom<input name="author" required maxlength="100"></label><label>Adresse e-mail (facultatif)<input type="email" name="email" maxlength="200"></label><label>Commentaire<textarea name="body" required maxlength="4000" rows="5"></textarea></label><button class="primary-button">Envoyer pour modération</button><small>Votre commentaire sera visible après validation par l’équipe.</small></form>'''
             flash = '<p class="success-message">Votre commentaire a été envoyé et sera publié après modération.</p>' if query.get('sent') else ''
@@ -1267,7 +1502,7 @@ class AppHandler(BaseHTTPRequestHandler):
             return self.redirect('/admin/login')
         with connect() as db:
             rows = db.execute('SELECT templates.*,COUNT(articles.id) AS uses FROM templates LEFT JOIN articles ON articles.template_id=templates.id GROUP BY templates.id ORDER BY is_default DESC,name').fetchall()
-        items = ''.join(f'''<tr><td><strong>{esc(row['name'])}</strong>{'<span class="default-mark">Par défaut</span>' if row['is_default'] else ''}</td><td>{row['uses']}</td><td><form method="post" action="/admin/templates">{self.csrf_field()}<input type="hidden" name="action" value="default"><input type="hidden" name="id" value="{row['id']}"><button class="plain-button">Définir par défaut</button></form></td><td>{'' if row['is_default'] else f'<form method="post" action="/admin/templates">{self.csrf_field()}<input type="hidden" name="action" value="delete"><input type="hidden" name="id" value="{row["id"]}"><button class="danger-button" onclick="return confirm(\'Supprimer ce modèle ?\')">Supprimer</button></form>'}</td></tr>''' for row in rows)
+        items = ''.join(f'''<tr><td><strong>{esc(row['name'])}</strong>{'<span class="default-mark">Par défaut</span>' if row['is_default'] else ''}</td><td>{row['uses']}</td><td><form method="post" action="/admin/templates">{self.csrf_field()}<input type="hidden" name="action" value="default"><input type="hidden" name="id" value="{row['id']}"><button class="plain-button">Définir par défaut</button></form></td><td>{'' if row['is_default'] else f'<form method="post" action="/admin/templates">{self.csrf_field()}<input type="hidden" name="action" value="delete"><input type="hidden" name="id" value="{row["id"]}"><button class="danger-button" onclick="return confirm(&#39;Supprimer ce modèle ?&#39;)">Supprimer</button></form>'}</td></tr>''' for row in rows)
         content = f'''<main class="admin-main"><div class="admin-title-row"><div><span class="eyebrow">Structure des articles</span><h1>Modèles</h1><p>Choisissez le modèle proposé par défaut à la création d’un article.</p></div></div><section class="admin-panel"><form method="post" action="/admin/templates" class="template-create">{self.csrf_field()}<input type="hidden" name="action" value="create"><label class="admin-field">Nom du modèle<input name="name" required maxlength="80" placeholder="Ex. Analyse, entretien"></label><label class="admin-field">Contenu de départ <textarea name="body_html" rows="4" placeholder="Structure HTML facultative à insérer dans l’éditeur"></textarea></label><label class="check-option"><input type="checkbox" name="make_default" value="1">Définir comme modèle par défaut</label><button class="primary-button">Créer le modèle</button></form><div class="admin-table-wrap"><table><thead><tr><th>Modèle</th><th>Articles</th><th>Par défaut</th><th></th></tr></thead><tbody>{items}</tbody></table></div></section></main>'''
         self.send_body(self.admin_page('Modèles', content, 'templates'))
 
@@ -1294,7 +1529,7 @@ class AppHandler(BaseHTTPRequestHandler):
         if not self.auth():
             return self.redirect('/admin/login')
         with connect() as db:
-            rows = db.execute("SELECT comments.*,articles.title,articles.slug FROM comments JOIN articles ON articles.id=comments.article_id ORDER BY CASE status WHEN 'pending' THEN 0 ELSE 1 END,comments.created_at DESC").fetchall()
+            rows = db.execute("SELECT comments.*,articles.title,articles.slug FROM comments JOIN articles ON articles.id=comments.article_id ORDER BY CASE comments.status WHEN 'pending' THEN 0 ELSE 1 END,comments.created_at DESC").fetchall()
         items = ''.join(f'''<article class="comment-admin-card"><div class="comment-admin-head"><strong>{esc(row['author'])}</strong><span class="status-badge {row['status']}">{'À modérer' if row['status']=='pending' else 'Publié'}</span><time>{esc(row['created_at'][:10])}</time></div><a href="/article/{quote(row['slug'])}#comments">Sur « {esc(row['title'])} »</a><p>{esc(row['body'])}</p><div class="comment-actions">{f'<form method="post" action="/admin/comments/{row["id"]}">{self.csrf_field()}<input type="hidden" name="action" value="approve"><button class="primary-button">Approuver</button></form>' if row['status']=='pending' else ''}<form method="post" action="/admin/comments/{row['id']}">{self.csrf_field()}<input type="hidden" name="action" value="delete"><button class="danger-button">Supprimer</button></form></div></article>''' for row in rows)
         content = f'''<main class="admin-main"><div class="admin-title-row"><div><span class="eyebrow">Modération</span><h1>Commentaires</h1><p>Les commentaires restent invisibles jusqu’à leur approbation.</p></div></div><section class="comments-admin-list">{items or '<div class="admin-empty">Aucun commentaire reçu.</div>'}</section></main>'''
         self.send_body(self.admin_page('Commentaires', content, 'comments'))

@@ -1,6 +1,6 @@
 # I-Dialogos — publications
 
-Application web pour rédiger et publier des articles. Le stockage des comptes et des publications utilise PostgreSQL.
+Application web pour rédiger et publier des articles. Le stockage des comptes et des publications utilise PostgreSQL en local et MySQL en production.
 
 ## Démarrer
 
@@ -78,6 +78,11 @@ $env:TRANSLATION_PROVIDER = "none"                      # ou désactiver la trad
 ```
 
 Si le service ne répond pas, le texte d’origine s’affiche avec un message, et un nouvel essai a lieu une minute plus tard.
+
+## Mise en production et déploiement continu
+
+- [DEPLOIEMENT_LWS.md](DEPLOIEMENT_LWS.md) : hébergement LWS (MySQL, `passenger_wsgi.py`) et reprise des données avec `export_mysql.py`.
+- [CICD.md](CICD.md) : tests et déploiement automatiques avec GitHub Actions (préproduction à chaque merge sur `main`, production à chaque version publiée, retour arrière automatique).
 
 ## Données
 

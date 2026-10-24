@@ -1,0 +1,20 @@
+# Environnements et fichiers générés
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.ruff_cache/
+
+# Contenu du site : images téléversées (sauvegardées à part, jamais déployées par Git)
+uploads/
+
+# Exports et archives (contiennent des données du site)
+idialogos_mysql.sql
+idialogos_mysql.zip
+idialogos_lws.zip
+idialogos_uploads.zip
+*.sql.gz
+
+# Réglages locaux
+.env
+app.env
