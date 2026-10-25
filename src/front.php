@@ -44,7 +44,8 @@ function static_file(string $path): void
 {
     $base = realpath(str_starts_with($path, '/assets/') ? app_root() . '/assets' : app_root());
     $file = realpath(app_root() . '/' . ltrim($path, '/'));
-    if (!$base || !$file || !str_starts_with($file, $base . '/') || !is_file($file)) {
+    // realpath() rend des chemins avec « \ » sous Windows : on compare avec le séparateur du système.
+    if (!$base || !$file || !str_starts_with($file, $base . DIRECTORY_SEPARATOR) || !is_file($file)) {
         not_found_plain();
         return;
     }
