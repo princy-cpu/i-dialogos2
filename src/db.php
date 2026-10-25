@@ -149,6 +149,13 @@ const MIGRATIONS = [
         'CREATE TABLE IF NOT EXISTS login_attempts (ip TEXT NOT NULL, attempted_at BIGINT NOT NULL)',
         'CREATE INDEX IF NOT EXISTS login_attempts_ip ON login_attempts (ip, attempted_at)',
     ]],
+    3 => ['Invités de la semaine et experts', [
+        // kind : « guest » (invité de la semaine, daté par featured_on) ou « expert » (ordonné par position).
+        "CREATE TABLE IF NOT EXISTS people (id BIGSERIAL PRIMARY KEY, kind TEXT NOT NULL CHECK (kind IN ('guest','expert')), name TEXT NOT NULL,"
+            . " description TEXT NOT NULL DEFAULT '', expertise TEXT NOT NULL DEFAULT '', region TEXT NOT NULL DEFAULT '', photo TEXT NOT NULL DEFAULT '',"
+            . " featured_on TEXT NOT NULL DEFAULT '', position INTEGER NOT NULL DEFAULT 0, created_at TEXT NOT NULL, updated_at TEXT NOT NULL)",
+        'CREATE INDEX IF NOT EXISTS people_kind ON people (kind, featured_on, position)',
+    ]],
 ];
 
 function latest_migration(): int

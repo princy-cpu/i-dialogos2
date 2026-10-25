@@ -339,3 +339,29 @@ footer .footer-cta-button:focus-visible{outline:3px solid var(--mk-orange);outli
 /* Écrans moyens (901–1180 px) : bouton de don réduit au cœur (libellé gardé pour les lecteurs d'écran). */
 @media(min-width:901px) and (max-width:1180px){.donate-label{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}.donate-button{padding:10px 12px}}
 @media(min-width:961px) and (max-width:1180px){.head nav{gap:14px;font-size:16px}}
+
+/* === Invités de la semaine et experts === */
+.person-initials{display:inline-grid;place-items:center;flex:none;width:140px;height:140px;border-radius:50%;background:linear-gradient(135deg,#1f6b3c,#2b8a52);color:#fff;font:700 40px/1 var(--serif)}
+.mk-split>.person-initials{width:min(100%,320px);height:auto;aspect-ratio:1;justify-self:center;font-size:72px}
+.person-meta{margin:4px 0 10px;font-weight:600;color:var(--green)}
+.people-tabs{display:flex;flex-wrap:wrap;gap:10px;margin:8px 0 34px}
+.people-tabs a{padding:9px 18px;border:1px solid #c9d3cb;border-radius:999px;color:var(--ink);font-weight:600;text-decoration:none;transition:border-color .2s,color .2s,background .2s}
+.people-tabs a:hover{border-color:var(--green);color:var(--green);background:#f3f7f4}
+.people-section{scroll-margin-top:100px;margin-bottom:56px}
+.person-featured{padding:28px;border:1px solid var(--line);border-radius:var(--radius);background:#fff;box-shadow:var(--shadow-sm)}
+.person-featured .mk-split{padding:0;margin-top:14px}
+.people-subtitle{margin:40px 0 18px;font:600 22px/1.25 var(--serif)}
+.people-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:20px}
+.person-card,.people-static>article{display:flex;gap:18px;align-items:flex-start;padding:20px;border:1px solid var(--line);border-radius:var(--radius);background:#fff;box-shadow:var(--shadow-sm)}
+.person-card .person-photo,.person-card .person-initials,.people-static>article>img{flex:none;width:96px;height:96px;border-radius:50%;object-fit:cover}
+.person-card .person-initials{font-size:30px}
+.person-body h3,.people-static h3{margin:0 0 4px;font:700 18px/1.3 var(--sans)}
+.person-body p,.people-static p{margin:0 0 8px;font-size:14px;line-height:1.55;color:#4a4650}
+.person-body .person-meta{color:var(--green)}
+.person-date{font-size:13px!important;color:var(--orange)!important}
+.mk-expert-track .person-initials{width:140px;height:140px}
+.admin-person{display:flex;align-items:center;gap:12px}
+.admin-person>span:last-child{display:flex;flex-direction:column}
+.admin-person-photo img,.admin-person-photo .person-initials{width:44px;height:44px;border-radius:50%;object-fit:cover;font-size:16px}
+@media(max-width:600px){.person-card,.people-static>article{flex-direction:column;align-items:center;text-align:center}.people-grid{grid-template-columns:1fr}.person-featured{padding:18px}.mk-expert-track .person-initials{width:100px;height:100px}}
+@media(max-width:900px){.mk-split>.person-initials{width:180px;font-size:52px}}

@@ -316,6 +316,62 @@ def test_pied_de_page_appels_a_l_action(visitor):
         assert 'data-newsletter-link' in footer and 'S’abonner à la newsletter' in footer
 
 
+
+# --- Lot 3 : invités de la semaine et experts ------------------------------------------------------------------------
+
+def save_person(admin, section: str, fields: list, photo: bool = True):
+    token = admin.csrf(f'/admin/{section}/new')
+    files = {'photo': ('portrait.png', 'image/png', PNG)} if photo else None
+    return admin.post(f'/admin/{section}/save', [('_csrf', token), *fields], files=files)
+
+
+def expert_track(html: str) -> str:
+    return html.split('class="mk-expert-track"', 1)[1].split('</section>', 1)[0]
+
+
+def guest_section(html: str) -> str:
+    return html.split('id="invitee"', 1)[1].split('</section>', 1)[0]
+
+
+def test_invites_et_experts_contenu_fixe_tant_que_la_base_est_vide(visitor):
+    home = visitor.get('/').text
+    assert 'href="/invites-et-experts">Voir plus d’informations<br>L’Invité/e de la semaine' in home
+    assert 'Oumou Sall Seck' in guest_section(home) and 'Giuseppe GILIBERTI' in expert_track(home)
+    page = visitor.get('/invites-et-experts')
+    assert page.status == 200 and 'Oumou Sall Seck' in page.text and 'Giuseppe GILIBERTI' in page.text
+    assert '<a href="/#experts" class="is-active" aria-current="page">Experts</a>' in page.text
+    assert visitor.get('/admin/experts').location.endswith('/admin/login')  # administration protégée
+
+
+def test_gestion_des_invites_et_des_experts(admin, visitor):
+    assert save_person(admin, 'invites', [('name', 'Invitée Ancienne'), ('expertise', 'Diplomatie'), ('region', 'Sénégal'),
+                                          ('description', 'Première ligne\nSeconde ligne'), ('featured_on', '2026-01-05')]).status == 303
+    assert save_person(admin, 'invites', [('name', 'Invité Récent'), ('expertise', 'Médias'), ('region', 'Québec'),
+                                          ('description', 'Journaliste <b>engagé</b>'), ('featured_on', '2026-02-02')], photo=False).status == 303
+    assert save_person(admin, 'experts', [('name', 'Experte Dynamique'), ('expertise', 'Droit constitutionnel'), ('region', 'Brésil'),
+                                          ('description', 'Professeure'), ('position', '1')]).status == 303
+    home = visitor.get('/').text
+    assert 'Invité Récent' in guest_section(home) and 'Oumou Sall Seck' not in guest_section(home)  # le plus récent
+    assert 'Journaliste &lt;b&gt;engagé&lt;/b&gt;' in guest_section(home)  # texte échappé
+    assert 'Experte Dynamique' in expert_track(home) and 'GILIBERTI' not in expert_track(home)
+    page = visitor.get('/invites-et-experts').text
+    assert page.index('Invité Récent') < page.index('Invités précédents') < page.index('Invitée Ancienne')
+    assert '<p>Première ligne</p><p>Seconde ligne</p>' in page and 'Diplomatie · Sénégal' in page
+    assert re.search(r'src="/uploads/[a-f0-9-]+\.png" alt="Portrait de Invitée Ancienne"', page)
+    expert_id = query('SELECT id FROM people WHERE name=%s', ('Experte Dynamique',))[0]['id']
+    edit = admin.get(f'/admin/experts/{expert_id}/edit').text
+    token = re.search(r'name="_csrf" value="([^"]+)"', edit).group(1)
+    admin.post('/admin/experts/save', [('_csrf', token), ('id', str(expert_id)), ('name', 'Experte Modifiée'), ('expertise', 'Droit'),
+                                       ('region', 'Brésil'), ('description', ''), ('position', '2')])
+    assert 'Experte Modifiée' in visitor.get('/invites-et-experts').text
+    assert query('SELECT photo FROM people WHERE id=%s', (expert_id,))[0]['photo'].startswith('/uploads/')  # photo conservée
+    missing = save_person(admin, 'experts', [('name', '   ')], photo=False)
+    assert missing.status == 200 and 'Le nom est obligatoire.' in missing.text
+    admin.post(f'/admin/experts/{expert_id}/delete', [('_csrf', admin.csrf('/admin/experts'))])
+    assert not query('SELECT 1 FROM people WHERE id=%s', (expert_id,))
+    assert 'Giuseppe GILIBERTI' in expert_track(visitor.get('/').text)  # plus aucun expert : contenu fixe de retour
+
+
 def test_operations_de_deploiement(server_url):
     client = Client(server_url)
     assert client.post('/_ops/migrate', []).status == 403

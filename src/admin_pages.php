@@ -8,7 +8,8 @@ function admin_page(string $title, string $content, string $active = ''): string
     $user = $session ? esc($session['username']) : '';
     $links = [['Accueil', '/admin', 'home'], ['Articles', '/admin/articles', 'articles'], ['Actualités et événements', '/admin/events', 'events'],
         ['Catégories', '/admin/categories', 'categories'], ['Étiquettes', '/admin/tags', 'tags'], ['Modèles', '/admin/templates', 'templates'],
-        ['Commentaires', '/admin/comments', 'comments'], ['Langues', '/admin/languages', 'languages']];
+        ['Commentaires', '/admin/comments', 'comments'], ['Invités de la semaine', '/admin/invites', 'invites'], ['Experts', '/admin/experts', 'experts'],
+        ['Langues', '/admin/languages', 'languages']];
     $nav = '';
     foreach ($links as [$label, $href, $key]) {
         $nav .= '<a class="' . ($key === $active ? 'active' : '') . '" href="' . $href . '">' . $label . '</a>';

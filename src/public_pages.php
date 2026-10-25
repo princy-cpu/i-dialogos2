@@ -201,6 +201,9 @@ function mark_active_nav(string $header, string $path): string
     if ($path === '/analyses' || str_starts_with($path, '/article/')) {
         return str_replace('<a href="/analyses">Les Notes</a>', '<a href="/analyses" class="is-active" aria-current="page">Les Notes</a>', $header);
     }
+    if ($path === '/invites-et-experts') {
+        return str_replace('<a href="#experts">Experts</a>', '<a href="#experts" class="is-active" aria-current="page">Experts</a>', $header);
+    }
     if (preg_match('#^/thematique/([a-z0-9-]+)$#', $path, $match)) {
         $header = str_replace('<summary>Thématiques</summary>', '<summary class="is-active">Thématiques</summary>', $header);
         return str_replace('<a href="/thematique/' . $match[1] . '"', '<a href="/thematique/' . $match[1] . '" aria-current="page"', $header);
@@ -330,6 +333,8 @@ function public_home(): void
     $page = str_replace('href="#atelier"', 'href="/admin"', $page);
     $page = str_replace('<div id="themes-menu"></div>', '<div id="themes-menu">' . theme_links($themes) . '</div>', $page);
     $page = site_links($page);
+    // Invité le plus récent et experts enregistrés (avant la traduction des sections fixes, qui les traduit aussi).
+    $page = home_people_blocks($db, $page);
     if ($language !== 'fr') {
         $page = translate_static_sections($db, $page, $language);
     }

@@ -12,6 +12,7 @@ require __DIR__ . '/themes.php';
 require __DIR__ . '/http.php';
 require __DIR__ . '/public_pages.php';
 require __DIR__ . '/listings.php';
+require __DIR__ . '/people.php';
 require __DIR__ . '/admin_pages.php';
 require __DIR__ . '/ops.php';
 
@@ -134,6 +135,10 @@ function route_get(string $path): void
         public_analyses();
         return;
     }
+    if ($path === '/invites-et-experts') {
+        public_people();
+        return;
+    }
     if (str_starts_with($path, '/article/')) {
         public_article(substr($path, 9));
         return;
@@ -171,6 +176,19 @@ function route_get(string $path): void
             '/admin/languages' => 'languages_page'];
         if (isset($admin[$path])) {
             $admin[$path]();
+            return;
+        }
+        $peopleKind = people_kind_from_path($segments[1] ?? '');
+        if ($peopleKind !== null) {
+            if (count($segments) === 2) {
+                people_admin_page($peopleKind);
+            } elseif (count($segments) === 3 && $segments[2] === 'new') {
+                person_form($peopleKind);
+            } elseif (count($segments) === 4 && $segments[3] === 'edit') {
+                person_form($peopleKind, $segments[2]);
+            } else {
+                redirect('/admin/' . PEOPLE_KINDS[$peopleKind]['path']);
+            }
             return;
         }
         if (count($segments) === 4 && $segments[3] === 'edit' && $segments[1] === 'events') {
@@ -235,6 +253,10 @@ function route_post(string $path): void
         delete_event($segments[2]);
     } elseif (count($segments) === 4 && $segments[1] === 'articles' && $segments[3] === 'delete') {
         delete_article($segments[2]);
+    } elseif (count($segments) === 3 && $segments[2] === 'save' && people_kind_from_path($segments[1]) !== null) {
+        save_person(people_kind_from_path($segments[1]));
+    } elseif (count($segments) === 4 && $segments[3] === 'delete' && people_kind_from_path($segments[1]) !== null) {
+        delete_person(people_kind_from_path($segments[1]), $segments[2]);
     } elseif (count($segments) === 3 && $segments[1] === 'comments') {
         comment_action($segments[2]);
     } else {
