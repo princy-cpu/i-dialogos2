@@ -11,6 +11,7 @@ require __DIR__ . '/translation.php';
 require __DIR__ . '/themes.php';
 require __DIR__ . '/http.php';
 require __DIR__ . '/public_pages.php';
+require __DIR__ . '/listings.php';
 require __DIR__ . '/admin_pages.php';
 require __DIR__ . '/ops.php';
 
@@ -124,7 +125,13 @@ function route_get(string $path): void
         return;
     }
     if ($path === '/') {
-        public_home();
+        if (!legacy_home_filters_redirect()) {
+            public_home();
+        }
+        return;
+    }
+    if ($path === '/analyses') {
+        public_analyses();
         return;
     }
     if (str_starts_with($path, '/article/')) {
@@ -136,7 +143,7 @@ function route_get(string $path): void
         return;
     }
     if ($path === '/actualites') {
-        public_news_events();
+        public_news_list();
         return;
     }
     if (str_starts_with($path, '/actualite/')) {

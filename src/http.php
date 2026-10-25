@@ -120,9 +120,9 @@ function send_body(string $body, int $status = 200, string $type = 'text/html; c
     }
 }
 
-function redirect(string $location, array $cookies = []): void
+function redirect(string $location, array $cookies = [], int $status = 303): void
 {
-    http_response_code(303);
+    http_response_code($status);
     header('Location: ' . $location);
     header('Content-Length: 0');
     if (App::$pendingCookie !== null && !$cookies) {
