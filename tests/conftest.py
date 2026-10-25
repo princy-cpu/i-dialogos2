@@ -26,11 +26,14 @@ ROOT = Path(__file__).resolve().parent.parent
 DATABASE_URL = os.environ.get('DATABASE_URL', '')
 DEPLOY_TOKEN = os.environ.get('TEST_DEPLOY_TOKEN', 'jeton-de-test-0123456789abcdef')
 ADMIN = ('admin', 'motdepasse-solide-123')
+# Les e-mails de la newsletter sont écrits dans ce fichier (MAIL_TRANSPORT=log) au lieu d'être envoyés.
+MAIL_LOG = Path(tempfile.gettempdir()) / f'idialogos-mails-{os.getpid()}.jsonl'
+SITE_URL = 'https://www.exemple-idialogos.org'
 
 if not DATABASE_URL.startswith(('postgres://', 'postgresql://')):
     pytest.exit('Indiquez une base PostgreSQL de test dans DATABASE_URL (elle sera vidée).', returncode=2)
 
-TABLES = ['schema_version', 'login_attempts', 'sessions', 'translations', 'news_events', 'comments', 'article_tags',
+TABLES = ['schema_version', 'mail_queue', 'article_mailings', 'subscribers', 'rate_events', 'people', 'login_attempts', 'sessions', 'translations', 'news_events', 'comments', 'article_tags',
           'article_categories', 'articles', 'tags', 'categories', 'templates', 'languages', 'users']
 
 
@@ -117,6 +120,7 @@ def free_port() -> int:
 @pytest.fixture(scope='session')
 def server_url():
     reset_database()
+    MAIL_LOG.unlink(missing_ok=True)
     if os.environ.get('APP_URL'):
         url = os.environ['APP_URL'].rstrip('/')
         assert Client(url).get('/healthz').status == 200, 'le site testé ne répond pas'
@@ -126,7 +130,8 @@ def server_url():
     tmp = Path(tempfile.mkdtemp(prefix='phptmp-'))
     port = free_port()
     env = {**os.environ, 'DATABASE_URL': DATABASE_URL, 'TRANSLATION_PROVIDER': 'fake', 'UPLOAD_DIR': str(uploads),
-           'DEPLOY_TOKEN': DEPLOY_TOKEN, 'APP_DEBUG': '1', 'TMPDIR': str(tmp), 'APP_ENV_FILE': os.devnull}
+           'DEPLOY_TOKEN': DEPLOY_TOKEN, 'APP_DEBUG': '1', 'DONATION_URL': 'https://exemple.org/don',
+           'MAIL_TRANSPORT': 'log', 'MAIL_LOG_FILE': str(MAIL_LOG), 'SITE_URL': SITE_URL, 'TMPDIR': str(tmp), 'APP_ENV_FILE': os.devnull}
     log = open(tmp / 'server.log', 'w')
     process = subprocess.Popen(['php', '-d', 'upload_max_filesize=12M', '-d', 'post_max_size=13M', '-d', f'sys_temp_dir={tmp}',
                                 '-S', f'127.0.0.1:{port}', 'dev-router.php'], cwd=ROOT, env=env, stdout=log, stderr=subprocess.STDOUT)

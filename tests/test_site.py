@@ -9,7 +9,7 @@ import time
 
 import psycopg
 import pytest
-from conftest import ADMIN, DATABASE_URL, DEPLOY_TOKEN, ROOT, Client, query, reset_database
+from conftest import ADMIN, DATABASE_URL, DEPLOY_TOKEN, MAIL_LOG, ROOT, SITE_URL, Client, query, reset_database
 
 PNG = b'\x89PNG\r\n\x1a\n' + b'0' * 64
 
@@ -221,14 +221,14 @@ def test_accueil_quatre_analyses_et_actualites(admin, visitor):
 
 
 def test_pagination_des_analyses(admin, visitor):
-    for number in range(12):
+    for number in range(14):
         article_id = create_article(admin, f'Paginationzeta numéro {number:02d}')
         query('UPDATE articles SET published_at=%s WHERE id=%s', (f'2020-01-{number + 1:02d}T10:00:00+00:00', article_id))
     first = visitor.get('/analyses?q=Paginationzeta')
-    assert first.status == 200 and len(card_slugs(first.text)) == 10
+    assert first.status == 200 and len(card_slugs(first.text)) == 12  # 12 éléments par page
     assert '<nav class="pagination" aria-label="Pagination">' in first.text and 'aria-current="page"' in first.text
     assert 'href="/analyses?q=Paginationzeta&amp;page=2"' in first.text  # le filtre est conservé dans la pagination
-    assert 'numéro 11' in first.text and 'numéro 01' not in first.text  # du plus récent au plus ancien
+    assert 'numéro 13' in first.text and 'numéro 01' not in first.text  # du plus récent au plus ancien
     second = visitor.get('/analyses?q=Paginationzeta&page=2')
     assert second.status == 200 and len(card_slugs(second.text)) == 2 and 'numéro 00' in second.text
     beyond = visitor.get('/analyses?q=Paginationzeta&page=3')
@@ -281,11 +281,350 @@ def test_articles_similaires_et_navigation(admin, visitor):
     query('UPDATE articles SET published_at=%s WHERE id=%s', ('2031-01-01T10:00:00+00:00', main))
     query('UPDATE articles SET published_at=%s WHERE id=%s', ('2031-01-02T10:00:00+00:00', close))
     page = visitor.get(f'/article/{article_slug(main)}').text
-    related = card_slugs(page.split('id="related-title"', 1)[1])
+    aside = page.split('<aside class="article-aside"', 1)[1].split('</aside>', 1)[0]  # colonne à droite de l'article
+    related = re.findall(r'class="aside-article" href="/article/([^"]+)"', aside)
     assert 3 <= len(related) <= 4
     assert article_slug(main) not in related and article_slug(draft) not in related  # jamais l'article courant ni un brouillon
     assert related[0] == article_slug(close)  # celui qui partage le plus de thèmes et de mots-clés
     assert f'rel="next" href="/article/{article_slug(close)}"' in page and 'rel="prev"' in page
+
+
+
+# --- Lot 1 : navigation et en-tête ------------------------------------------------------------------------------------
+
+def test_en_tete_logo_don_et_lien_actif(visitor):
+    home = visitor.get('/').text
+    assert '<a class="logo" href="/"' in home  # le logo ramène en haut de l'accueil
+    assert 'class="donate-button" href="https://exemple.org/don" target="_blank" rel="noopener"' in home
+    notes = visitor.get('/analyses').text
+    assert '<a href="/analyses" class="is-active" aria-current="page">Les Notes</a>' in notes
+    assert 'class="donate-button"' in notes  # même en-tête sur toutes les pages publiques
+    theme = visitor.get('/thematique/jeunesse').text
+    assert '<summary class="is-active">Thématiques</summary>' in theme
+    assert 'href="/thematique/jeunesse" aria-current="page"' in theme
+    assert 'aria-current="page"' not in visitor.get('/actualites').text.split('</header>', 1)[0].split('<nav aria-label="Navigation principale">', 1)[1]
+
+
+
+# --- Lot 2 : pied de page -------------------------------------------------------------------------------------------
+
+def test_pied_de_page_appels_a_l_action(visitor):
+    for path in ('/', '/analyses'):
+        footer = visitor.get(path).text.split('<footer', 1)[1]
+        assert 'class="footer-cta"' in footer
+        assert 'class="footer-cta-button is-donate" href="https://exemple.org/don"' in footer
+        assert 'href="https://www.helloasso.com/associations/i-dialogos-international/adhesions/adhesions-i-dialogos-2026"' in footer
+        assert 'data-newsletter-link' in footer and 'S’abonner à la newsletter' in footer
+
+
+
+# --- Lot 3 : invités de la semaine et experts ------------------------------------------------------------------------
+
+def save_person(admin, section: str, fields: list, photo: bool = True):
+    token = admin.csrf(f'/admin/{section}/new')
+    files = {'photo': ('portrait.png', 'image/png', PNG)} if photo else None
+    return admin.post(f'/admin/{section}/save', [('_csrf', token), *fields], files=files)
+
+
+def expert_track(html: str) -> str:
+    return html.split('class="mk-expert-track"', 1)[1].split('</section>', 1)[0]
+
+
+def guest_section(html: str) -> str:
+    return html.split('id="invitee"', 1)[1].split('</section>', 1)[0]
+
+
+def test_invites_et_experts_contenu_fixe_tant_que_la_base_est_vide(visitor):
+    home = visitor.get('/').text
+    assert 'href="/invites-et-experts">Voir plus d’informations<br>L’Invité/e de la semaine' in home
+    assert 'Oumou Sall Seck' in guest_section(home) and 'Giuseppe GILIBERTI' in expert_track(home)
+    page = visitor.get('/invites-et-experts')
+    assert page.status == 200 and 'Oumou Sall Seck' in page.text and 'Giuseppe GILIBERTI' in page.text
+    assert '<a href="/#experts" class="is-active" aria-current="page">Experts</a>' in page.text
+    assert visitor.get('/admin/experts').location.endswith('/admin/login')  # administration protégée
+
+
+def test_gestion_des_invites_et_des_experts(admin, visitor):
+    assert save_person(admin, 'invites', [('name', 'Invitée Ancienne'), ('expertise', 'Diplomatie'), ('region', 'Sénégal'),
+                                          ('description', 'Première ligne\nSeconde ligne'), ('featured_on', '2026-01-05')]).status == 303
+    assert save_person(admin, 'invites', [('name', 'Invité Récent'), ('expertise', 'Médias'), ('region', 'Québec'),
+                                          ('description', 'Journaliste <b>engagé</b>'), ('featured_on', '2026-02-02')], photo=False).status == 303
+    assert save_person(admin, 'experts', [('name', 'Experte Dynamique'), ('expertise', 'Droit constitutionnel'), ('region', 'Brésil'),
+                                          ('description', 'Professeure'), ('position', '1')]).status == 303
+    home = visitor.get('/').text
+    assert 'Invité Récent' in guest_section(home) and 'Oumou Sall Seck' not in guest_section(home)  # le plus récent
+    assert 'Journaliste &lt;b&gt;engagé&lt;/b&gt;' in guest_section(home)  # texte échappé
+    assert 'Experte Dynamique' in expert_track(home) and 'GILIBERTI' not in expert_track(home)
+    page = visitor.get('/invites-et-experts').text
+    assert page.index('Invité Récent') < page.index('Invités précédents') < page.index('Invitée Ancienne')
+    assert '<p>Première ligne</p><p>Seconde ligne</p>' in page and 'Diplomatie · Sénégal' in page
+    assert re.search(r'src="/uploads/[a-f0-9-]+\.png" alt="Portrait de Invitée Ancienne"', page)
+    expert_id = query('SELECT id FROM people WHERE name=%s', ('Experte Dynamique',))[0]['id']
+    edit = admin.get(f'/admin/experts/{expert_id}/edit').text
+    token = re.search(r'name="_csrf" value="([^"]+)"', edit).group(1)
+    admin.post('/admin/experts/save', [('_csrf', token), ('id', str(expert_id)), ('name', 'Experte Modifiée'), ('expertise', 'Droit'),
+                                       ('region', 'Brésil'), ('description', ''), ('position', '2')])
+    assert 'Experte Modifiée' in visitor.get('/invites-et-experts').text
+    assert query('SELECT photo FROM people WHERE id=%s', (expert_id,))[0]['photo'].startswith('/uploads/')  # photo conservée
+    missing = save_person(admin, 'experts', [('name', '   ')], photo=False)
+    assert missing.status == 200 and 'Le nom est obligatoire.' in missing.text
+    admin.post(f'/admin/experts/{expert_id}/delete', [('_csrf', admin.csrf('/admin/experts'))])
+    assert not query('SELECT 1 FROM people WHERE id=%s', (expert_id,))
+    assert 'Giuseppe GILIBERTI' in expert_track(visitor.get('/').text)  # plus aucun expert : contenu fixe de retour
+
+
+
+# --- Lot 4 : newsletter ----------------------------------------------------------------------------------------------
+
+def newsletter_post(client, email: str, **extra):
+    return client.post('/newsletter', [('email', email), *extra.items()], headers={'Accept': 'application/json'})
+
+
+def read_mails() -> list:
+    if not MAIL_LOG.exists():
+        return []
+    return [json.loads(line) for line in MAIL_LOG.read_text(encoding='utf-8').splitlines() if line.strip()]
+
+
+def wait_for_mail(predicate, timeout: float = 8) -> list:
+    """Les e-mails partent après la réponse (file traitée en arrière-plan) : on attend qu'ils apparaissent."""
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        found = [mail for mail in read_mails() if predicate(mail)]
+        if found:
+            return found
+        time.sleep(0.2)
+    return []
+
+
+def resave_article(admin, article_id: str, title: str, status: str) -> None:
+    form = admin.get(f'/admin/articles/{article_id}/edit').text
+    token = re.search(r'name="_csrf" value="([^"]+)"', form).group(1)
+    field, categories = category_field(form)
+    fields = [('_csrf', token), ('id', article_id), ('title', title), ('excerpt', 'Extrait modifié'), ('body_html', '<p>Texte modifié</p>'),
+              ('author', 'Jean-Claude Mairal'), ('language', 'fr'), ('status', status), (field, categories[4]), ('comments_enabled', '1')]
+    assert admin.post('/admin/articles/save', fields).status == 303
+
+
+def test_inscription_newsletter_avec_double_confirmation(visitor):
+    query('DELETE FROM rate_events')
+    bad = newsletter_post(visitor, 'pas-une-adresse')
+    assert bad.status == 422 and json.loads(bad.text) == {'ok': False, 'message': 'Saisissez une adresse e-mail valide.'}
+    ok = newsletter_post(visitor, '  Lectrice@Exemple.org ')
+    assert ok.status == 200 and json.loads(ok.text)['ok'] and 'e-mail de confirmation' in json.loads(ok.text)['message']
+    assert query('SELECT status FROM subscribers WHERE email=%s', ('lectrice@exemple.org',))[0]['status'] == 'pending'
+    mail = wait_for_mail(lambda m: m['to'] == 'lectrice@exemple.org' and m['subject'].startswith('Confirmez'))
+    assert mail, 'e-mail de confirmation absent'
+    link = re.search(re.escape(SITE_URL) + r'(/newsletter/confirmer\?token=[A-Za-z0-9_-]+)', mail[-1]['html']).group(1)
+    assert f'{SITE_URL}/newsletter/desinscription?token=' in mail[-1]['html']  # lien de désinscription dans chaque e-mail
+    pending_again = newsletter_post(visitor, 'lectrice@exemple.org')
+    assert json.loads(pending_again.text)['message'].startswith('Votre inscription attend')  # doublon en attente
+    confirmed = visitor.get(link)
+    assert confirmed.status == 200 and 'Inscription confirmée' in confirmed.text
+    assert query('SELECT status FROM subscribers WHERE email=%s', ('lectrice@exemple.org',))[0]['status'] == 'active'
+    duplicate = newsletter_post(visitor, 'LECTRICE@exemple.org')
+    assert json.loads(duplicate.text)['message'] == 'Cette adresse est déjà inscrite à la newsletter.'
+    assert len(query('SELECT id FROM subscribers WHERE email=%s', ('lectrice@exemple.org',))) == 1
+    trap = newsletter_post(visitor, 'robot@exemple.org', website='https://spam.example')
+    assert trap.status == 200 and not query('SELECT 1 FROM subscribers WHERE email=%s', ('robot@exemple.org',))  # champ piège
+    without_js = visitor.post('/newsletter', [('email', 'sans-js@exemple.org')])
+    assert without_js.status == 200 and 'id="accueil"' in without_js.text and 'e-mail de confirmation' in without_js.text
+    assert visitor.get('/newsletter/confirmer?token=jeton-inconnu-0123456789').status == 404
+
+
+def test_limite_des_inscriptions_par_adresse_ip(visitor):
+    query('DELETE FROM rate_events')
+    statuses = [newsletter_post(visitor, f'limite{number}@exemple.org').status for number in range(7)]
+    assert statuses[:5] == [200] * 5 and statuses[5:] == [429, 429]
+    query('DELETE FROM rate_events')
+
+
+def test_annonce_des_articles_aux_abonnes_une_seule_fois(admin, visitor, server_url):
+    now = '2026-01-01T00:00:00+00:00'
+    for email, status, token in (('abonne@exemple.org', 'active', 'jeton-abonne-0123456789abcdef'), ('parti@exemple.org', 'unsubscribed', 'jeton-parti-0123456789abcdef'),
+                                 ('attente@exemple.org', 'pending', 'jeton-attente-0123456789abcdef')):
+        query('INSERT INTO subscribers(email,status,token,language,created_at) VALUES(%s,%s,%s,%s,%s)', (email, status, token, 'fr', now))
+    draft = create_article(admin, 'Annonce brouillon Zeta', status='draft')
+    article_id = create_article(admin, 'Annonce Newsletter Zeta', excerpt='Un extrait pour la newsletter')
+    mail = wait_for_mail(lambda m: m['subject'] == 'Annonce Newsletter Zeta')
+    mail = wait_for_mail(lambda m: m['subject'] == 'Annonce Newsletter Zeta' and m['to'] == 'abonne@exemple.org')
+    recipients = {m['to'] for m in read_mails() if m['subject'] == 'Annonce Newsletter Zeta'}
+    assert recipients == {'abonne@exemple.org', 'lectrice@exemple.org'}  # abonnés confirmés seulement (ni désinscrit, ni en attente)
+    html = mail[0]['html']
+    assert f'{SITE_URL}/article/{article_slug(article_id)}' in html and 'Un extrait pour la newsletter' in html
+    assert re.search(r'<img src="' + re.escape(SITE_URL) + r'/uploads/[a-f0-9-]+\.png"', html)
+    assert f'{SITE_URL}/newsletter/desinscription?token=jeton-abonne-0123456789abcdef' in html and 'Se désinscrire' in html
+    assert mail[0]['headers']['List-Unsubscribe-Post'] == 'List-Unsubscribe=One-Click'
+    assert not wait_for_mail(lambda m: 'brouillon Zeta' in m['subject'], timeout=1)  # un brouillon n'est pas annoncé
+    resave_article(admin, article_id, 'Annonce Newsletter Zeta', 'published')  # simple modification
+    resave_article(admin, article_id, 'Annonce Newsletter Zeta', 'draft')  # dépublication…
+    resave_article(admin, article_id, 'Annonce Newsletter Zeta', 'published')  # …puis republication
+    time.sleep(1)
+    assert len([m for m in read_mails() if m['subject'] == 'Annonce Newsletter Zeta']) == 2  # une seule fois par article et par abonné
+    assert query('SELECT COUNT(*) AS n FROM mail_queue WHERE article_id=%s', (article_id,))[0]['n'] == 2
+    resave_article(admin, draft, 'Annonce brouillon Zeta', 'published')  # brouillon publié : annoncé à son tour
+    assert wait_for_mail(lambda m: m['subject'] == 'Annonce brouillon Zeta')
+    admin_page = admin.get('/admin/newsletter').text
+    assert 'abonne@exemple.org' in admin_page and 'Envoyer la file maintenant' in admin_page
+    queue = Client(server_url).post('/_ops/mail-queue', [], headers={'X-Deploy-Token': DEPLOY_TOKEN})
+    assert queue.status == 200 and json.loads(queue.text)['status'] == 'ok'
+
+
+def test_desinscription_de_la_newsletter(visitor):
+    token = 'jeton-abonne-0123456789abcdef'
+    page = visitor.get(f'/newsletter/desinscription?token={token}')
+    assert page.status == 200 and 'abonne@exemple.org' in page.text and 'Confirmer la désinscription' in page.text
+    assert query('SELECT status FROM subscribers WHERE token=%s', (token,))[0]['status'] == 'active'  # le lien seul ne désinscrit pas
+    done = visitor.post(f'/newsletter/desinscription?token={token}', [])
+    assert done.status == 200 and 'bien été désinscrite' in done.text
+    assert query('SELECT status FROM subscribers WHERE token=%s', (token,))[0]['status'] == 'unsubscribed'
+    one_click = visitor.post('/newsletter/desinscription?token=jeton-attente-0123456789abcdef', [('List-Unsubscribe', 'One-Click')])
+    assert one_click.status == 200  # désinscription en un clic depuis la messagerie (RFC 8058)
+    assert visitor.get('/newsletter/desinscription?token=inconnu-0123456789abcdefgh').status == 404
+
+
+
+# --- Lot 5 : commentaires --------------------------------------------------------------------------------------------
+
+def post_comment(client, slug: str, **fields):
+    token = re.search(r'name="_csrf" value="([^"]+)"', client.get(f'/article/{slug}').text).group(1)
+    data = [('_csrf', fields.pop('_csrf', token))] + list(fields.items())
+    return client.post(f'/article/{slug}/comment', data)
+
+
+def test_commentaires_messages_antispam_et_moderation(admin, visitor):
+    query('DELETE FROM rate_events')
+    slug = article_slug(create_article(admin, 'Article à commenter Zeta'))
+    page = visitor.get(f'/article/{slug}').text
+    assert '<main class="article-layout">' in page and 'name="website"' in page  # champ piège présent
+    invalid = post_comment(visitor, slug, author='', email='pas-une-adresse', body='Mon avis détaillé')
+    assert invalid.status == 422 and 'Le commentaire n’a pas été envoyé.' in invalid.text
+    assert 'Indiquez votre nom.' in invalid.text and 'L’adresse e-mail n’est pas valide.' in invalid.text
+    assert '>Mon avis détaillé</textarea>' in invalid.text  # le texte saisi est conservé
+    expired = post_comment(visitor, slug, _csrf='jeton-perime', author='Lectrice', body='Texte conservé')
+    assert expired.status == 403 and 'Votre session a expiré' in expired.text and '>Texte conservé</textarea>' in expired.text
+    trap = post_comment(visitor, slug, author='Robot', body='Achetez maintenant', website='https://spam.example')
+    assert trap.status == 303 and not query('SELECT 1 FROM comments WHERE author=%s', ('Robot',))
+    for number in range(3):
+        assert post_comment(visitor, slug, author=f'Lectrice {number}', email='lectrice@exemple.org', body=f'Commentaire <b>{number}</b>').status == 303
+    limited = post_comment(visitor, slug, author='Lectrice 4', body='Un de trop')
+    assert limited.status == 429 and 'plusieurs commentaires en peu de temps' in limited.text
+    assert len(query("SELECT 1 FROM comments c JOIN articles a ON a.id=c.article_id WHERE a.slug=%s AND c.status='pending'", (slug,))) == 3
+    success = visitor.get(f'/article/{slug}?sent=1')
+    assert 'Votre commentaire a été envoyé et sera publié après modération.' in success.text
+    assert 'Commentaire &lt;b&gt;0&lt;/b&gt;' not in success.text  # en attente de modération : pas encore affiché
+    comment_id = query("SELECT c.id FROM comments c JOIN articles a ON a.id=c.article_id WHERE a.slug=%s AND c.author='Lectrice 0'", (slug,))[0]['id']
+    admin.post(f'/admin/comments/{comment_id}', [('_csrf', admin.csrf('/admin/comments')), ('action', 'approve')])
+    approved = visitor.get(f'/article/{slug}').text
+    assert 'Commentaires (1)' in approved and 'Commentaire &lt;b&gt;0&lt;/b&gt;' in approved  # affiché, échappé
+    query('DELETE FROM rate_events')
+
+
+# --- Lot 6 : utilisateurs, rôles, listes de l'espace adhérent ---------------------------------------------------------
+
+def login(server_url: str, username: str, password: str) -> Client:
+    client = Client(server_url)
+    response = client.post('/admin/login', [('_csrf', client.csrf('/admin/login')), ('username', username), ('password', password)])
+    assert response.location == '/admin', response.location
+    return client
+
+
+def save_user(admin, fields: list[tuple[str, str]]):
+    return admin.post('/admin/users/save', [('_csrf', admin.csrf('/admin/users/new')), *fields])
+
+
+def user_id(username: str) -> int:
+    return query('SELECT id FROM users WHERE username=%s', (username,))[0]['id']
+
+
+def test_gestion_des_utilisateurs_et_des_roles(admin, server_url):
+    assert query('SELECT role FROM users WHERE username=%s', (ADMIN[0],))[0]['role'] == 'admin'  # compte existant : administrateur
+    created = save_user(admin, [('username', 'autrice'), ('display_name', 'Awa Autrice'), ('email', 'awa@exemple.org'),
+                                ('role', 'author'), ('password', 'autrice-mot-de-passe')])
+    assert created.status == 200 and 'a été créé (Auteur)' in created.text
+    assert save_user(admin, [('username', 'adherent'), ('role', 'member'), ('password', 'adherent-mot-de-passe')]).status == 200
+    assert 'déjà utilisé' in save_user(admin, [('username', 'AUTRICE'), ('role', 'member'), ('password', 'x' * 14)]).text
+    assert 'au moins 12 caractères' in save_user(admin, [('username', 'court'), ('role', 'member'), ('password', 'court')]).text
+    assert not query("SELECT 1 FROM users WHERE username='court'")
+    listing = admin.get('/admin/users?q=awa').text
+    assert 'Awa Autrice' in listing and 'adherent' not in listing
+    assert 'Awa Autrice' not in admin.get('/admin/users?role=member').text
+
+    # Auteur : publie directement, ne voit et ne modifie que ses propres articles.
+    author = login(server_url, 'autrice', 'autrice-mot-de-passe')
+    for path in ('/admin/users', '/admin/categories', '/admin/newsletter', '/admin/comments', '/admin/experts'):
+        assert author.get(path).status == 403, path
+    admin_article = create_article(admin, 'Article de l’administrateur')
+    own = create_article(author, 'Article de l’autrice')
+    assert query('SELECT owner_id, status FROM articles WHERE id=%s', (own,))[0] == {'owner_id': user_id('autrice'), 'status': 'published'}
+    board = author.get('/admin').text
+    assert 'Mes articles' in board and 'Article de l’autrice' in board and 'Article de l’administrateur' not in board
+    assert 'href="/admin/users"' not in board and 'href="/admin/categories"' not in board  # menu limité au rôle
+    assert author.get(f'/admin/articles/{admin_article}/edit').status == 403
+    assert author.post(f'/admin/articles/{admin_article}/delete', [('_csrf', author.csrf('/admin'))]).status == 403
+    assert query('SELECT 1 FROM articles WHERE id=%s', (admin_article,))
+    assert author.get(f'/admin/articles/{own}/edit').status == 200
+    assert admin.get(f'/admin/articles/{own}/edit').status == 200  # l'administrateur garde tous les droits
+    assert author.post('/admin/users/save', [('_csrf', author.csrf('/admin')), ('username', 'intrus'), ('role', 'admin'),
+                                             ('password', 'x' * 14)]).status == 403
+    assert not query("SELECT 1 FROM users WHERE username='intrus'")
+
+    # Adhérent : tableau de bord, profil et messagerie seulement.
+    member = login(server_url, 'adherent', 'adherent-mot-de-passe')
+    home = member.get('/admin').text
+    assert 'Espace adhérent' in home and 'href="/admin/messages"' in home and 'href="/admin/articles"' not in home
+    for path in ('/admin/articles', '/admin/articles/new', '/admin/users', '/admin/events'):
+        assert member.get(path).status == 403, path
+    messages = member.get('/admin/messages')
+    assert messages.status == 200 and 'Bientôt disponible' in messages.text
+    profile_token = member.csrf('/admin/profile')
+    wrong = member.post('/admin/profile', [('_csrf', profile_token), ('display_name', 'Ada Adhérente'), ('email', ''),
+                                           ('current_password', 'faux'), ('new_password', 'nouveau-mot-de-passe'), ('confirm_password', 'nouveau-mot-de-passe')])
+    assert 'Le mot de passe actuel est incorrect.' in wrong.text
+    changed = member.post('/admin/profile', [('_csrf', profile_token), ('display_name', 'Ada Adhérente'), ('email', 'ada@exemple.org'),
+                                             ('current_password', 'adherent-mot-de-passe'), ('new_password', 'nouveau-mot-de-passe'),
+                                             ('confirm_password', 'nouveau-mot-de-passe')])
+    assert 'Profil et mot de passe mis à jour.' in changed.text and 'Ada Adhérente' in changed.text
+
+    # Désactivation : la session ouverte est coupée et la connexion refusée, jusqu'à la réactivation.
+    member_id = user_id('adherent')
+    disabled = admin.post(f'/admin/users/{member_id}/toggle', [('_csrf', admin.csrf('/admin/users'))])
+    assert 'a été désactivé' in disabled.text
+    assert member.get('/admin').location == '/admin/login'
+    retry = Client(server_url)
+    refused = retry.post('/admin/login', [('_csrf', retry.csrf('/admin/login')), ('username', 'adherent'), ('password', 'nouveau-mot-de-passe')])
+    assert refused.location.endswith('error=disabled') and 'désactivé' in retry.get(refused.location).text
+    admin.post(f'/admin/users/{member_id}/toggle', [('_csrf', admin.csrf('/admin/users'))])
+    login(server_url, 'adherent', 'nouveau-mot-de-passe')
+
+    # L'administrateur ne peut ni se désactiver ni se retirer son rôle.
+    me = user_id(ADMIN[0])
+    assert 'propre compte' in admin.post(f'/admin/users/{me}/toggle', [('_csrf', admin.csrf('/admin/users'))]).text
+    save_user(admin, [('id', str(me)), ('username', ADMIN[0]), ('role', 'member'), ('password', '')])
+    assert query('SELECT role, active FROM users WHERE id=%s', (me,))[0] == {'role': 'admin', 'active': 1}
+    edited = save_user(admin, [('id', str(user_id('autrice'))), ('username', 'autrice'), ('display_name', 'Awa A.'), ('role', 'member'), ('password', '')])
+    assert 'mis à jour' in edited.text and query("SELECT role FROM users WHERE username='autrice'")[0]['role'] == 'member'
+    assert author.get('/admin/articles').status == 403  # nouveau rôle appliqué immédiatement
+
+
+def test_recherche_et_pagination_des_listes(admin):
+    for number in range(23):
+        query('INSERT INTO tags (name, slug, created_at) VALUES (%s, %s, %s) ON CONFLICT DO NOTHING', (f'Thème {number:02d}', f'theme-{number:02d}', ''))
+    first = admin.get('/admin/tags?q=Th%C3%A8me').text
+    assert first.count('Thème ') == 20 and 'rel="next"' in first and 'page=2' in first
+    second = admin.get('/admin/tags?q=Th%C3%A8me&page=2').text
+    assert second.count('Thème ') == 3 and 'Thème 22' in second
+    assert 'Thème 07' in admin.get('/admin/tags?q=07').text and 'Thème 08' not in admin.get('/admin/tags?q=07').text
+    create_article(admin, 'Recherche alpha introuvable ailleurs', status='draft')
+    found = admin.get('/admin/articles?q=alpha+introuvable').text
+    assert 'Recherche alpha introuvable ailleurs' in found and 'Article de l’autrice' not in found
+    assert 'Recherche alpha' not in admin.get('/admin/articles?q=alpha+introuvable&etat=published').text
+    assert 'Aucun commentaire ne correspond' in admin.get('/admin/comments?q=zzzz-introuvable').text
+    assert 'Aucun contenu ne correspond' in admin.get('/admin/events?q=zzzz-introuvable').text
+    assert 'Aucune fiche ne correspond' in admin.get('/admin/invites?q=zzzz-introuvable').text
+    assert admin.get('/admin/newsletter?q=zzzz').status == 200
+    query("DELETE FROM tags WHERE slug LIKE 'theme-%%'")
+
 
 
 def test_operations_de_deploiement(server_url):

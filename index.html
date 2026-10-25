@@ -17,13 +17,14 @@
   <header id="accueil">
     <div class="utility"><a href="#partenaires">Partenariats</a><a href="#soutiens">Adhésions et soutiens</a><a href="#infolettre">InfoLettres</a><a href="mailto:contact@i-dialogos.com">Contact</a><a class="editorial-shortcut" href="#atelier">Espace rédaction ↗</a></div>
     <div class="head">
-      <a class="logo" href="#accueil" aria-label="I-Dialogos, accueil"><span class="logo-i">I</span><span class="logo-dash">-</span><span class="logo-d">D</span>ialog<span class="logo-o">o</span>s<small>think tank</small></a>
+      <a class="logo" href="/" aria-label="I-Dialogos, accueil"><span class="logo-i">I</span><span class="logo-dash">-</span><span class="logo-d">D</span>ialog<span class="logo-o">o</span>s<small>think tank</small></a>
       <button class="menu-toggle" aria-label="Ouvrir le menu" aria-expanded="false">☰</button>
       <nav aria-label="Navigation principale">
         <details><summary>À propos de nous</summary><div><a href="#apropos">À propos</a><a href="#reseau">Le réseau</a><a href="#gouvernance">La gouvernance</a><a href="#invitee">L’invitée de la semaine</a><a href="#inspirations">Grandes inspirations</a></div></details>
         <details><summary>Thématiques</summary><div id="themes-menu"></div></details>
         <a href="#reseau">Régions</a><a href="/analyses">Les Notes</a><a href="#experts">Experts</a>
       </nav>
+      <span id="donate-slot"></span>
       <button class="search-button" id="search-open" aria-label="Ouvrir la recherche">⌕</button>
     </div>
     <p class="tagline">I-Dialogos, un espace transnational de dialogue pour comprendre les mutations du monde</p>
@@ -38,7 +39,7 @@
         <aside class="event-box"><h2>Actualités / Événements</h2><div id="database-news-events"></div><a href="/actualites" class="theme-button home-cta">Voir toutes les actualités →</a></aside>
       </div>
       <aside class="analysis-column" id="analyses"><h2 class="analysis-heading">Analyses <span></span></h2><div id="database-analysis-articles"></div><a class="theme-button home-cta" href="/analyses">Voir toutes les analyses →</a></aside>
-      <form class="quick-newsletter" id="quick-newsletter"><label for="quick-email">Recevoir l’InfoLettre</label><input id="quick-email" type="email" placeholder="✉  Entrer votre email" required><button type="submit">Pour s’abonner</button><span class="quick-message" aria-live="polite"></span></form>
+      <form class="quick-newsletter" id="quick-newsletter" method="post" action="/newsletter" novalidate><label for="quick-email">Recevoir l’InfoLettre</label><input id="quick-email" type="email" name="email" autocomplete="email" maxlength="254" placeholder="✉  Entrer votre email" required><input class="hp-field" type="text" name="website" tabindex="-1" autocomplete="off" aria-hidden="true"><button type="submit">Pour s’abonner</button><span class="quick-message" role="status" aria-live="polite"></span></form>
     </section>
 
     <div id="database-explore-themes"></div>
@@ -117,15 +118,15 @@
     <section class="mk-page" id="invitee">
       <p class="mk-ribbon">Peuples et citoyens du monde</p>
       <h2 class="mk-page-title">L’Invité/e de la semaine</h2>
-      <div class="mk-split">
+      <!-- invite:debut --><div class="mk-split">
         <img src="assets/oumou-sall-seck.webp" alt="Portrait d’Oumou Sall Seck" loading="lazy">
         <div>
           <h3 class="mk-guest-name">Oumou Sall Seck <span class="mk-flag-mali" role="img" aria-label="Mali"></span></h3>
           <p>Première femme élue dans une région du Nord-Mali, Oumou Sall Seck a reçu en 2008 le Prix international des droits humains <em>« Pool Lauritzen »</em>, ainsi que le <em>Trophée d’initiative</em> décerné par le président-directeur général du groupe Airness. Elle a ensuite reçu, en 2010, le prix <em>« Women in Excellence »</em> puis, en 2016 à Agadez, au Niger, le prestigieux <em>Prix international de la Fondation Mano Dayak</em>. Jusqu’en mai 2023, elle a été ambassadrice du Mali à Berlin et auprès de plusieurs pays du nord de l’Union européenne.</p>
           <p>Cofondatrice et ancienne coprésidente d’I-Dialogos, Oumou Sall Seck se consacre désormais à ses fonctions de ministre de l’Entrepreneuriat national, de l’Emploi et de la Formation professionnelle.</p>
         </div>
-      </div>
-      <a class="mk-more" href="#analyses">Voir plus d’informations<br>L’Invité/e de la semaine</a>
+      </div><!-- invite:fin -->
+      <a class="mk-more" href="/invites-et-experts">Voir plus d’informations<br>L’Invité/e de la semaine</a>
     </section>
 
     <!-- 7 à 13 – Thématiques -->
@@ -151,11 +152,11 @@
         <a href="#expert-list">Par domaine d’expertise</a>
       </div>
       <div class="mk-expert-carousel" id="expert-list" aria-label="Experts du réseau I-Dialogos">
-        <div class="mk-expert-track">
+        <div class="mk-expert-track"><!-- experts:debut -->
           <article><img src="assets/expert-giliberti.webp" alt="" loading="lazy"><div><h3>Giuseppe GILIBERTI</h3><p>Co-directeur, avec Luigi GRAVAGNUOLO, du « LAB Politiche e Culture », Bologne, Italie</p></div></article>
           <article><img src="assets/expert-tran.webp" alt="" loading="lazy"><div><h3>TRAN THU DUNG</h3><p>Membre du Comité de pilotage I-Dialogos</p></div></article>
           <article><img src="assets/expert-araujo.webp" alt="" loading="lazy"><div><h3>Luiz Henrique Diniz ARAUJO</h3><p>Procureur fédéral, Recife, Brésil</p><p>Expert constitutionnaliste</p></div></article>
-          <article><img src="assets/expert-soppelsa.webp" alt="" loading="lazy"><div><h3>Jacques SOPPELSA</h3><p>Ancien Président de l’Université Panthéon-Sorbonne</p></div></article>
+          <article><img src="assets/expert-soppelsa.webp" alt="" loading="lazy"><div><h3>Jacques SOPPELSA</h3><p>Ancien Président de l’Université Panthéon-Sorbonne</p></div></article><!-- experts:fin -->
         </div>
       </div>
     </section>
@@ -212,12 +213,12 @@
     <!-- 17 – Clôture -->
     <section class="mk-closing" id="infolettre">
       <h2>Recevez les dernières informations de I-Dialogos</h2>
-      <form id="newsletter-form"><input type="email" name="email" placeholder="Adresse email" aria-label="Adresse email" required><button type="submit" aria-label="S’abonner">→</button><span class="newsletter-message" aria-live="polite"></span></form>
+      <form id="newsletter-form" method="post" action="/newsletter" novalidate><input type="email" name="email" autocomplete="email" maxlength="254" placeholder="Adresse email" aria-label="Adresse email" required><input class="hp-field" type="text" name="website" tabindex="-1" autocomplete="off" aria-hidden="true"><button type="submit" aria-label="S’abonner">→</button><span class="newsletter-message" role="status" aria-live="polite"></span></form>
       <div class="mk-closing-social"><a href="https://www.linkedin.com/" target="_blank" rel="noopener" aria-label="Suivre I-Dialogos sur LinkedIn">in</a></div>
     </section>
   </main>
 
-  <footer id="soutiens"><div><a class="logo footer-logo" href="#accueil"><span class="logo-i">I</span><span class="logo-dash">-</span><span class="logo-d">D</span>ialog<span class="logo-o">o</span>s<small>think tank</small></a><p>Un espace transnational de dialogue<br>pour comprendre les mutations du monde.</p></div><nav><a href="#apropos">À propos</a><a href="#thematiques">Thématiques</a><a href="#reseau">Régions</a><a href="/analyses">Les Notes</a><a href="#experts">Experts</a><a href="#partenaires">Partenaires</a><a href="mailto:contact@i-dialogos.com">Contact</a></nav><p class="copyright">© I-Dialogos · Peuples et citoyens du monde</p><a href="#accueil" class="back-top">Retour en haut ↑</a></footer>
+  <footer id="soutiens"><section class="footer-cta" aria-labelledby="footer-cta-title"><h2 id="footer-cta-title">Soutenez le dialogue transnational</h2><div class="footer-cta-actions"><span id="footer-donate-slot"></span><a class="footer-cta-button" href="#infolettre" data-newsletter-link><span aria-hidden="true">✉</span> <span>S’abonner à la newsletter</span></a><span id="membership-slot"></span></div></section><div><a class="logo footer-logo" href="/"><span class="logo-i">I</span><span class="logo-dash">-</span><span class="logo-d">D</span>ialog<span class="logo-o">o</span>s<small>think tank</small></a><p>Un espace transnational de dialogue<br>pour comprendre les mutations du monde.</p></div><nav><a href="#apropos">À propos</a><a href="#thematiques">Thématiques</a><a href="#reseau">Régions</a><a href="/analyses">Les Notes</a><a href="#experts">Experts</a><a href="#partenaires">Partenaires</a><a href="mailto:contact@i-dialogos.com">Contact</a></nav><p class="copyright">© I-Dialogos · Peuples et citoyens du monde</p><a href="#accueil" class="back-top">Retour en haut ↑</a></footer>
   <dialog class="modal-dialog article-editor-dialog" id="editor-dialog" aria-labelledby="editor-title"><form class="editor-form" id="article-form"><div class="dialog-heading"><div><span class="eyebrow">Publication</span><h2 id="editor-title">Nouvel article</h2></div><button type="button" class="icon-close" data-close="editor-dialog" aria-label="Fermer">×</button></div><input type="hidden" id="article-id"><div class="form-grid"><label class="field field-wide">Titre de l’article<input id="article-title" maxlength="140" required placeholder="Un titre clair et informatif"></label><label class="field field-wide">Chapô / résumé<textarea id="article-excerpt" rows="3" maxlength="320" required placeholder="Présentez l’idée centrale en quelques lignes"></textarea><small><span id="excerpt-count">0</span>/320</small></label><label class="field">Auteur<input id="article-author" placeholder="Nom de l’auteur"></label><label class="field">Thème<select id="article-theme" required></select></label><label class="field field-wide">Tags<input id="article-tags" placeholder="Ex. démocratie, Sahel, jeunesse (séparés par des virgules)"><small>Les nouveaux tags seront ajoutés à votre catalogue.</small></label><label class="field field-wide">Image de couverture (URL)<input id="article-cover" type="text" placeholder="https://exemple.fr/image.jpg"></label><label class="field field-wide upload-field">Ou choisir une image<input id="article-cover-file" type="file" accept="image/*"><small>Image redimensionnée et conservée sur cet appareil (2 Mo maximum).</small></label><label class="field field-wide">Texte de l’article<textarea id="article-body" rows="12" required placeholder="Écrivez votre article…\n\nUn saut de ligne séparera les paragraphes."></textarea></label></div><div class="editor-footer"><span id="editor-message" aria-live="polite"></span><button type="button" class="secondary-button" data-save-status="draft">Enregistrer le brouillon</button><button type="button" class="compose-button" data-save-status="published">Publier l’article</button></div></form></dialog>
 
   <dialog class="modal-dialog taxonomy-dialog" id="taxonomy-dialog" aria-labelledby="taxonomy-title"><div class="dialog-heading"><div><span class="eyebrow">Classement éditorial</span><h2 id="taxonomy-title">Thèmes et tags</h2></div><button type="button" class="icon-close" data-close="taxonomy-dialog" aria-label="Fermer">×</button></div><div class="taxonomy-columns"><section><h3>Thèmes</h3><form id="theme-form" class="taxonomy-form"><input id="new-theme" maxlength="60" required placeholder="Nom du nouveau thème"><button type="submit">Ajouter</button></form><ul id="theme-admin-list" class="taxonomy-list"></ul></section><section><h3>Tags</h3><form id="tag-form" class="taxonomy-form"><input id="new-tag" maxlength="40" required placeholder="Nom du nouveau tag"><button type="submit">Ajouter</button></form><ul id="tag-admin-list" class="taxonomy-list"></ul></section></div><p class="taxonomy-hint">La suppression d’un thème ou d’un tag le retire aussi des articles qui l’utilisent.</p></dialog>

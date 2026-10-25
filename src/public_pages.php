@@ -166,6 +166,51 @@ function theme_block(array $theme, string $moreHref, string $titleTag = 'h2'): s
     return '<article class="mk-theme" id="theme-' . esc($theme['id']) . '" lang="' . esc(content_lang($theme)) . '"><' . $titleTag . ' class="mk-page-title">' . esc($theme['title']) . '</' . $titleTag . '><div class="mk-split"><img src="/assets/' . esc($theme['image']) . '" alt="Illustration : ' . esc($theme['title']) . '" loading="lazy"><div class="mk-theme-text">' . $question . $paragraphs . $signature . '<a class="mk-more" href="' . esc($moreHref) . '">Voir plus d’informations<br>' . esc($theme['button']) . '</a></div></div></article>';
 }
 
+/** Bouton « Faire un don » de l'en-tête (masqué tant que DONATION_URL n'est pas réglée). */
+function donate_button(): string
+{
+    $url = donation_url();
+    return $url === '' ? '' : '<a class="donate-button" href="' . esc($url) . '" target="_blank" rel="noopener" aria-label="Faire un don"><span aria-hidden="true">♥</span> <span class="donate-label">Faire un don</span></a>';
+}
+
+/** Boutons du bandeau d'appels à l'action du pied de page (chacun masqué si son adresse n'est pas réglée). */
+function footer_cta_link(string $url, string $label, string $icon, string $class = ''): string
+{
+    if ($url === '') {
+        return '';
+    }
+    return '<a class="footer-cta-button' . ($class !== '' ? ' ' . $class : '') . '" href="' . esc($url) . '" target="_blank" rel="noopener"><span aria-hidden="true">' . $icon . '</span> <span>' . esc($label) . '</span></a>';
+}
+
+/** Remplace les emplacements réservés d'index.html par les liens configurés. */
+function site_links(string $html): string
+{
+    return str_replace(
+        ['<span id="donate-slot"></span>', '<span id="footer-donate-slot"></span>', '<span id="membership-slot"></span>'],
+        [donate_button(), footer_cta_link(donation_url(), 'Faire un don', '♥', 'is-donate'), footer_cta_link(membership_url(), 'Devenir adhérent', '★')],
+        $html
+    );
+}
+
+/**
+ * Lien de la page courante mis en évidence dans le menu (même style que le survol) : « Les Notes » pour les listes
+ * et articles, « Thématiques » (et le thème ouvert) sur une page de thématique.
+ */
+function mark_active_nav(string $header, string $path): string
+{
+    if ($path === '/analyses' || str_starts_with($path, '/article/')) {
+        return str_replace('<a href="/analyses">Les Notes</a>', '<a href="/analyses" class="is-active" aria-current="page">Les Notes</a>', $header);
+    }
+    if ($path === '/invites-et-experts') {
+        return str_replace('<a href="#experts">Experts</a>', '<a href="#experts" class="is-active" aria-current="page">Experts</a>', $header);
+    }
+    if (preg_match('#^/thematique/([a-z0-9-]+)$#', $path, $match)) {
+        $header = str_replace('<summary>Thématiques</summary>', '<summary class="is-active">Thématiques</summary>', $header);
+        return str_replace('<a href="/thematique/' . $match[1] . '"', '<a href="/thematique/' . $match[1] . '" aria-current="page"', $header);
+    }
+    return $header;
+}
+
 /** En-tête et pied de page de l'accueil (index.html), réutilisés sur toutes les pages publiques. */
 function site_chrome(array $themes): array
 {
@@ -176,7 +221,9 @@ function site_chrome(array $themes): array
     $footerEnd = strpos($page, '</footer>') + strlen('</footer>');
     $header = substr($page, $headerStart, $headerEnd - $headerStart);
     $footer = substr($page, $footerStart, $footerEnd - $footerStart);
+    $footer = site_links($footer);
     $header = str_replace('<div id="themes-menu"></div>', '<div id="themes-menu">' . theme_links($themes) . '</div>', $header);
+    $header = mark_active_nav(site_links($header), request()->path);
     $parts = [];
     foreach ([$header, $footer] as $part) {
         // Les ancres de l'accueil (#apropos…) pointent vers la page d'accueil depuis les autres pages.
@@ -285,6 +332,9 @@ function public_home(): void
     $page = (string) preg_replace('/<dialog class="modal-dialog.*?<\/dialog>\s*/s', '', $page);
     $page = str_replace('href="#atelier"', 'href="/admin"', $page);
     $page = str_replace('<div id="themes-menu"></div>', '<div id="themes-menu">' . theme_links($themes) . '</div>', $page);
+    $page = site_links($page);
+    // Invité le plus récent et experts enregistrés (avant la traduction des sections fixes, qui les traduit aussi).
+    $page = home_people_blocks($db, $page);
     if ($language !== 'fr') {
         $page = translate_static_sections($db, $page, $language);
     }
@@ -405,7 +455,27 @@ function public_news_event(string $slug): void
     public_page($item['title'], $body);
 }
 
-function public_article(string $slug): void
+/** Formulaire de commentaire : erreurs en tête, saisies conservées, champ piège invisible. */
+function comment_form(string $slug, array $state): string
+{
+    $values = $state['values'] ?? [];
+    $errors = $state['errors'] ?? [];
+    $invalid = fn(string $field) => isset($errors[$field]) ? ' aria-invalid="true" aria-describedby="comment-error-' . $field . '"' : '';
+    $message = fn(string $field) => isset($errors[$field]) ? '<span class="field-error" id="comment-error-' . $field . '">' . esc($errors[$field]) . '</span>' : '';
+    $summary = $errors ? '<div class="form-error" role="alert"><strong>Le commentaire n’a pas été envoyé.</strong> ' . esc(implode(' ', $errors)) . '</div>' : '';
+    return '<form class="comment-form" method="post" action="/article/' . q($slug) . '/comment#comments" novalidate>' . csrf_field() . '<h3>Laisser un commentaire</h3>' . $summary
+        . '<label>Nom<input name="author" required maxlength="100" autocomplete="name" value="' . esc($values['author'] ?? '') . '"' . $invalid('author') . '>' . $message('author') . '</label>'
+        . '<label>Adresse e-mail (facultatif)<input type="email" name="email" maxlength="200" autocomplete="email" value="' . esc($values['email'] ?? '') . '"' . $invalid('email') . '>' . $message('email') . '<small>Elle ne sera pas publiée.</small></label>'
+        . '<label>Commentaire<textarea name="body" required minlength="3" maxlength="4000" rows="5"' . $invalid('body') . '>' . esc($values['body'] ?? '') . '</textarea>' . $message('body') . '</label>'
+        . '<input class="hp-field" type="text" name="website" tabindex="-1" autocomplete="off" aria-hidden="true">'
+        . '<button class="primary-button">Envoyer pour modération</button><small>Votre commentaire sera visible après validation par l’équipe.</small></form>';
+}
+
+/**
+ * Page d'un article. $commentState (erreurs et saisies) est fourni quand un commentaire est refusé : la page est
+ * réaffichée avec les messages et le texte saisi, sans rien perdre.
+ */
+function public_article(string $slug, array $commentState = [], int $status = 200): void
 {
     $db = db();
     $article = $db->one("SELECT * FROM articles WHERE slug=? AND status='published'", [$slug]);
@@ -436,18 +506,23 @@ function public_article(string $slug): void
     if ((int) $article['comments_enabled']) {
         $items = '';
         foreach ($comments as $row) {
-            $items .= '<article class="comment"><strong>' . esc($row['author']) . '</strong><time>' . esc(substr($row['created_at'], 0, 10)) . '</time><p>' . esc($row['body']) . '</p></article>';
+            $items .= '<article class="comment"><strong>' . esc($row['author']) . '</strong><time>' . esc(long_date($row['created_at'], $language)) . '</time><p>' . nl2br(esc($row['body']), false) . '</p></article>';
         }
-        $form = '<form class="comment-form" method="post" action="/article/' . q($slug) . '/comment">' . csrf_field() . '<h3>Laisser un commentaire</h3><label>Nom<input name="author" required maxlength="100"></label><label>Adresse e-mail (facultatif)<input type="email" name="email" maxlength="200"></label><label>Commentaire<textarea name="body" required maxlength="4000" rows="5"></textarea></label><button class="primary-button">Envoyer pour modération</button><small>Votre commentaire sera visible après validation par l’équipe.</small></form>';
-        $flash = request()->q('sent') !== '' ? '<p class="success-message">Votre commentaire a été envoyé et sera publié après modération.</p>' : '';
-        $commentsBlock = '<section id="comments" class="comments-area"><h2>Commentaires (' . count($comments) . ')</h2>' . $flash . ($items ?: '<p>Soyez le premier à commenter cet article.</p>') . $form . '</section>';
+        $flash = request()->q('sent') !== '' && !$commentState ? '<p class="success-message" role="status">Votre commentaire a été envoyé et sera publié après modération.</p>' : '';
+        $commentsBlock = '<section id="comments" class="comments-area"><h2>Commentaires (' . count($comments) . ')</h2>' . $flash . ($items ?: '<p>Soyez le premier à commenter cet article.</p>') . comment_form($slug, $commentState) . '</section>';
     }
     $lang = $showOriginal ? $article['language'] : content_lang($article);
-    $date = substr($article['published_at'] ?: $article['created_at'], 0, 10);
-    $body = '<main class="article-page" lang="' . esc($lang) . '">' . $notice . '<div class="article-topic-chips">' . $topicChips . '</div><h1>' . esc($article['title']) . '</h1><div class="article-byline">' . esc($article['author']) . ' · ' . esc($date) . '</div>' . $image . '<p class="article-excerpt">' . esc($article['excerpt']) . '</p><div class="article-rich-content">' . $article['body_html'] . '</div><div class="article-topic-chips article-tag-list">' . $tagsHtml . '</div>' . article_footer_links($db, $article, $language) . $commentsBlock . '<a class="back-public" href="/">← Retour à l’accueil</a></main>';
-    public_page($article['title'], $body);
+    $date = long_date($article['published_at'] ?: $article['created_at'], $language);
+    $body = '<main class="article-layout"><article class="article-page" lang="' . esc($lang) . '">' . $notice . '<div class="article-topic-chips">' . $topicChips . '</div><h1>' . esc($article['title']) . '</h1><div class="article-byline">' . esc($article['author']) . ' · ' . esc($date) . '</div>' . $image . '<p class="article-excerpt">' . esc($article['excerpt']) . '</p><div class="article-rich-content">' . $article['body_html'] . '</div><div class="article-topic-chips article-tag-list">' . $tagsHtml . '</div>' . article_pager($db, $article, $language) . '</article>'
+        . related_aside($db, $article, $language)
+        . '<div class="article-comments">' . $commentsBlock . '<a class="back-public" href="/">← Retour à l’accueil</a></div></main>';
+    public_page($article['title'], $body, $status);
 }
 
+/**
+ * Envoi d'un commentaire : jeton de session, champ piège, contrôles, limite de 3 commentaires par adresse IP en
+ * 10 minutes, puis enregistrement « en attente » (modération dans l'administration).
+ */
 function comment_post(string $slug): void
 {
     $db = db();
@@ -456,11 +531,34 @@ function comment_post(string $slug): void
         send_body('Commentaires fermés.', 403, 'text/plain; charset=utf-8');
         return;
     }
-    $author = mb_cut(trim(request()->form('author')), 100);
-    $email = mb_cut(trim(request()->form('email')), 200);
-    $body = mb_cut(trim(request()->form('body')), 4000);
-    if ($author !== '' && $body !== '') {
-        $db->execute('INSERT INTO comments(article_id,author,email,body,status,created_at) VALUES(?,?,?,?,?,?)', [$article['id'], $author, $email, $body, 'pending', now_iso()]);
+    $values = ['author' => mb_cut(trim(request()->form('author')), 100), 'email' => mb_cut(trim(request()->form('email')), 200), 'body' => mb_cut(trim(request()->form('body')), 4000)];
+    if (!csrf_ok()) {
+        public_article($slug, ['errors' => ['session' => 'Votre session a expiré : vérifiez votre commentaire puis renvoyez-le.'], 'values' => $values], 403);
+        return;
     }
+    if (request()->form('website') !== '') {
+        // Champ piège rempli : robot. Même réponse qu'un envoi réussi, rien n'est enregistré.
+        redirect('/article/' . q($slug) . '?sent=1#comments');
+        return;
+    }
+    $errors = [];
+    if ($values['author'] === '') {
+        $errors['author'] = 'Indiquez votre nom.';
+    }
+    if ($values['email'] !== '' && !filter_var($values['email'], FILTER_VALIDATE_EMAIL)) {
+        $errors['email'] = 'L’adresse e-mail n’est pas valide.';
+    }
+    if (mb_strlen($values['body']) < 3) {
+        $errors['body'] = 'Écrivez votre commentaire (3 caractères au moins).';
+    }
+    if ($errors) {
+        public_article($slug, ['errors' => $errors, 'values' => $values], 422);
+        return;
+    }
+    if (rate_limited($db, 'comment', 3, 600)) {
+        public_article($slug, ['errors' => ['rate' => 'Vous avez envoyé plusieurs commentaires en peu de temps. Réessayez dans quelques minutes.'], 'values' => $values], 429);
+        return;
+    }
+    $db->execute('INSERT INTO comments(article_id,author,email,body,status,created_at) VALUES(?,?,?,?,?,?)', [$article['id'], $values['author'], $values['email'], $values['body'], 'pending', now_iso()]);
     redirect('/article/' . q($slug) . '?sent=1#comments');
 }

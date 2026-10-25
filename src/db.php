@@ -149,6 +149,40 @@ const MIGRATIONS = [
         'CREATE TABLE IF NOT EXISTS login_attempts (ip TEXT NOT NULL, attempted_at BIGINT NOT NULL)',
         'CREATE INDEX IF NOT EXISTS login_attempts_ip ON login_attempts (ip, attempted_at)',
     ]],
+    3 => ['Invités de la semaine et experts', [
+        // kind : « guest » (invité de la semaine, daté par featured_on) ou « expert » (ordonné par position).
+        "CREATE TABLE IF NOT EXISTS people (id BIGSERIAL PRIMARY KEY, kind TEXT NOT NULL CHECK (kind IN ('guest','expert')), name TEXT NOT NULL,"
+            . " description TEXT NOT NULL DEFAULT '', expertise TEXT NOT NULL DEFAULT '', region TEXT NOT NULL DEFAULT '', photo TEXT NOT NULL DEFAULT '',"
+            . " featured_on TEXT NOT NULL DEFAULT '', position INTEGER NOT NULL DEFAULT 0, created_at TEXT NOT NULL, updated_at TEXT NOT NULL)",
+        'CREATE INDEX IF NOT EXISTS people_kind ON people (kind, featured_on, position)',
+    ]],
+    4 => ['Newsletter : abonnés, file d’envoi, envois par article, limitation des envois de formulaires', [
+        // status : pending (en attente de confirmation), active, unsubscribed ; token : lien de confirmation et de désinscription.
+        "CREATE TABLE IF NOT EXISTS subscribers (id BIGSERIAL PRIMARY KEY, email TEXT UNIQUE NOT NULL, status TEXT NOT NULL DEFAULT 'pending'"
+            . " CHECK (status IN ('pending','active','unsubscribed')), token TEXT UNIQUE NOT NULL, language TEXT NOT NULL DEFAULT 'fr', created_at TEXT NOT NULL,"
+            . " confirmation_sent_at TEXT NOT NULL DEFAULT '', confirmed_at TEXT NOT NULL DEFAULT '', unsubscribed_at TEXT NOT NULL DEFAULT '')",
+        // Une ligne par article déjà annoncé : la clé primaire garantit un seul envoi par article.
+        'CREATE TABLE IF NOT EXISTS article_mailings (article_id TEXT PRIMARY KEY REFERENCES articles(id) ON DELETE CASCADE, queued_at TEXT NOT NULL, recipients INTEGER NOT NULL DEFAULT 0)',
+        "CREATE TABLE IF NOT EXISTS mail_queue (id BIGSERIAL PRIMARY KEY, kind TEXT NOT NULL CHECK (kind IN ('confirm','article')),"
+            . " subscriber_id BIGINT NOT NULL REFERENCES subscribers(id) ON DELETE CASCADE, article_id TEXT REFERENCES articles(id) ON DELETE CASCADE,"
+            . " status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending','sent','failed','cancelled')), attempts INTEGER NOT NULL DEFAULT 0,"
+            . " last_error TEXT NOT NULL DEFAULT '', created_at TEXT NOT NULL, next_attempt_at TEXT NOT NULL, sent_at TEXT NOT NULL DEFAULT '')",
+        'CREATE INDEX IF NOT EXISTS mail_queue_pending ON mail_queue (status, next_attempt_at, id)',
+        'CREATE TABLE IF NOT EXISTS rate_events (scope TEXT NOT NULL, ip TEXT NOT NULL, at BIGINT NOT NULL)',
+        'CREATE INDEX IF NOT EXISTS rate_events_lookup ON rate_events (scope, ip, at)',
+    ]],
+    5 => ['Rôles des utilisateurs (administrateur, auteur, adhérent), désactivation des comptes, propriétaire des articles', [
+        // Les comptes existants deviennent administrateurs (valeur par défaut à l'ajout), les suivants adhérents.
+        // Pas d'UPDATE : ces instructions sont rejouées telles quelles lors d'une restauration (ops.php).
+        "ALTER TABLE users ADD COLUMN IF NOT EXISTS role TEXT NOT NULL DEFAULT 'admin' CHECK (role IN ('admin','author','member'))",
+        "ALTER TABLE users ALTER COLUMN role SET DEFAULT 'member'",
+        "ALTER TABLE users ADD COLUMN IF NOT EXISTS display_name TEXT NOT NULL DEFAULT ''",
+        "ALTER TABLE users ADD COLUMN IF NOT EXISTS email TEXT NOT NULL DEFAULT ''",
+        'ALTER TABLE users ADD COLUMN IF NOT EXISTS active INTEGER NOT NULL DEFAULT 1',
+        // Articles sans propriétaire (antérieurs aux rôles) : modifiables par les administrateurs seulement.
+        'ALTER TABLE articles ADD COLUMN IF NOT EXISTS owner_id BIGINT REFERENCES users(id) ON DELETE SET NULL',
+        'CREATE INDEX IF NOT EXISTS articles_owner ON articles (owner_id)',
+    ]],
 ];
 
 function latest_migration(): int

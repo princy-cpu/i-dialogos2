@@ -2,14 +2,15 @@
 /**
  * Opérations de déploiement, appelées par GitHub Actions avec le jeton DEPLOY_TOKEN (en-tête X-Deploy-Token) :
  *   POST /_ops/backup   sauvegarde compressée de la base dans .app/backups (les 10 dernières sont gardées) ;
- *   POST /_ops/migrate  applique les migrations en attente.
+ *   POST /_ops/migrate  applique les migrations en attente ;
+ *   POST /_ops/mail-queue  envoie les e-mails en attente de la newsletter (tâche planifiée, par exemple toutes les 15 minutes).
  * Sans DEPLOY_TOKEN dans app.env, ces adresses n'existent pas (404).
  */
 declare(strict_types=1);
 
 const BACKUP_TABLES = ['users', 'languages', 'templates', 'categories', 'tags', 'articles', 'article_categories', 'article_tags',
-    'comments', 'news_events', 'translations', 'schema_version', 'login_attempts'];
-const SERIAL_TABLES = ['users', 'templates', 'categories', 'tags', 'comments', 'news_events'];
+    'comments', 'news_events', 'translations', 'schema_version', 'login_attempts', 'people', 'subscribers', 'article_mailings', 'mail_queue', 'rate_events'];
+const SERIAL_TABLES = ['users', 'templates', 'categories', 'tags', 'comments', 'news_events', 'people', 'subscribers', 'mail_queue'];
 
 function ops_route(string $path): void
 {
@@ -27,6 +28,13 @@ function ops_route(string $path): void
         $label = preg_replace('/[^A-Za-z0-9_-]/', '', (string) ($_GET['label'] ?? '')) ?: 'manuel';
         $file = backup_database(db(), $label);
         send_body(json_encode(['status' => 'ok', 'file' => basename($file), 'bytes' => filesize($file)]), 200, 'application/json');
+        return;
+    }
+    if ($path === '/_ops/mail-queue') {
+        ensure_schema(db());
+        $sent = process_mail_queue(55, 200);
+        $pending = (int) db()->value("SELECT COUNT(*) FROM mail_queue WHERE status='pending'");
+        send_body(json_encode(['status' => 'ok', 'sent' => $sent, 'pending' => $pending]), 200, 'application/json');
         return;
     }
     if ($path === '/_ops/migrate') {
@@ -50,6 +58,11 @@ function backup_dir(): string
 function schema_statements_from_database(Db $db): array
 {
     $statements = BASELINE_SCHEMA;
+    // Tables créées par les migrations : leurs instructions (toutes idempotentes) redonnent clés primaires, séquences,
+    // contraintes et index, que la reconstruction colonne par colonne ci-dessous ne recrée pas.
+    foreach (MIGRATIONS as [, $migrationStatements]) {
+        array_push($statements, ...$migrationStatements);
+    }
     $columns = $db->all("SELECT c.relname AS table_name, a.attname AS column_name, format_type(a.atttypid, a.atttypmod) AS type,
             a.attnotnull AS not_null, pg_get_expr(d.adbin, d.adrelid) AS default_value
         FROM pg_attribute a JOIN pg_class c ON c.oid = a.attrelid JOIN pg_namespace n ON n.oid = c.relnamespace

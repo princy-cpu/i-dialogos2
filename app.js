@@ -108,12 +108,31 @@ document.querySelectorAll('[data-carousel]').forEach(carousel => {
   }, { passive: true });
   update();
 });
-document.querySelectorAll('#quick-newsletter,#newsletter-form').forEach(form => form.addEventListener('submit', event => {
+// Newsletter : envoi au serveur (/newsletter), message de confirmation ou d'erreur affiché sous le formulaire.
+// Sans JavaScript, le formulaire est envoyé normalement et le serveur répond par une page.
+document.querySelectorAll('#quick-newsletter,#newsletter-form').forEach(form => form.addEventListener('submit', async event => {
   event.preventDefault();
-  const feedback = form.querySelector('[aria-live="polite"]') || document.createElement('span');
-  feedback.textContent = 'Inscription enregistrée pour cette démonstration.';
-  if (!feedback.isConnected) form.append(feedback);
-  form.reset();
+  const feedback = form.querySelector('[aria-live="polite"]');
+  const input = form.querySelector('input[type="email"]');
+  const button = form.querySelector('button[type="submit"]');
+  const show = (message, ok) => {
+    feedback.textContent = message;
+    feedback.classList.toggle('is-error', !ok);
+    feedback.classList.toggle('is-success', ok);
+  };
+  // La validation (et le message, dans la langue du visiteur) est faite par le serveur.
+  button.disabled = true;
+  try {
+    const response = await fetch(form.action, { method: 'POST', body: new FormData(form), headers: { Accept: 'application/json' } });
+    const result = await response.json();
+    show(result.message, result.ok);
+    if (result.ok) form.reset();
+    else input.focus();
+  } catch (_) {
+    show('Une erreur est survenue. Réessayez dans un instant.', false);
+  } finally {
+    button.disabled = false;
+  }
 }));
 // Experts : défilé automatique (maquette 14). Les fiches sont dupliquées pour une boucle continue.
 const expertTrack = document.querySelector('.mk-expert-track');
@@ -133,12 +152,37 @@ const progressBar = document.createElement('div');
 progressBar.className = 'scroll-progress';
 progressBar.setAttribute('aria-hidden', 'true');
 document.body.prepend(progressBar);
-const toTop = document.createElement('a');
-toTop.href = '#accueil';
+// Retour en haut : un vrai défilement jusqu'à 0. L'ancienne ancre #accueil visait l'en-tête « collant »,
+// vers lequel les navigateurs ne défilent pas de façon fiable.
+const scrollToTop = () => {
+  const smooth = !matchMedia('(prefers-reduced-motion: reduce)').matches;
+  try {
+    window.scrollTo({ top: 0, left: 0, behavior: smooth ? 'smooth' : 'auto' });
+  } catch (_) {
+    window.scrollTo(0, 0);
+  }
+  if (location.hash) history.replaceState(null, '', location.pathname + location.search);
+  // Le focus revient en haut de page pour les personnes qui naviguent au clavier.
+  const logo = document.querySelector('.head .logo');
+  logo?.focus({ preventScroll: true });
+};
+const toTop = document.createElement('button');
+toTop.type = 'button';
 toTop.className = 'to-top';
 toTop.setAttribute('aria-label', 'Retour en haut');
 toTop.textContent = '↑';
+toTop.addEventListener('click', scrollToTop);
 document.body.append(toTop);
+document.querySelectorAll('.back-top').forEach(link => link.addEventListener('click', event => {
+  event.preventDefault();
+  scrollToTop();
+}));
+// Logo : sur l'accueil, retour en haut de page ; ailleurs, le lien « / » ouvre l'accueil en haut.
+document.querySelectorAll('.logo').forEach(logo => logo.addEventListener('click', event => {
+  if (location.pathname !== '/' || location.search) return;
+  event.preventDefault();
+  scrollToTop();
+}));
 let scrollQueued = false;
 const updateOnScroll = () => {
   scrollQueued = false;
@@ -218,3 +262,18 @@ if ('IntersectionObserver' in window) {
   }), { rootMargin: '-45% 0px -50% 0px' });
   sectionLinks.forEach((_, section) => spy.observe(section));
 }
+
+// « S'abonner à la newsletter » (pied de page) : défile jusqu'au formulaire et place le curseur dans le champ e-mail.
+// Depuis une autre page, le lien ouvre /#infolettre et le champ reçoit le focus au chargement.
+const focusNewsletter = () => {
+  const section = document.querySelector('#infolettre');
+  const input = document.querySelector('#newsletter-form input[type="email"]');
+  if (!section || !input) return false;
+  section.scrollIntoView({ behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth', block: 'center' });
+  input.focus({ preventScroll: true });
+  return true;
+};
+document.querySelectorAll('[data-newsletter-link]').forEach(link => link.addEventListener('click', event => {
+  if (focusNewsletter()) event.preventDefault();
+}));
+if (location.hash === '#infolettre') addEventListener('load', focusNewsletter);
