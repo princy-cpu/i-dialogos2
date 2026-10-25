@@ -3,7 +3,7 @@
 ## Le circuit
 
 ```
-branche de travail ──► pull request ──► CI : syntaxe PHP, Ruff, ShellCheck, tests de bout en bout (PHP 8.0 et 8.3)
+branche de travail ──► pull request ──► CI : syntaxe PHP, Ruff, ShellCheck, tests de bout en bout (PHP 8.0 et 8.3, PostgreSQL 9.6 et 15)
                                               │ tout est vert
                                               ▼
                                        merge sur main
@@ -51,6 +51,10 @@ htdocs/
 
 Prérequis : étapes 1 à 4 de [DEPLOIEMENT_LWS.md](DEPLOIEMENT_LWS.md) (version de PHP, base, `app.env`, images).
 
+**Chez o2switch**, suivre plutôt [DEPLOIEMENT_O2SWITCH.md](DEPLOIEMENT_O2SWITCH.md) : clé SSH (secret `SSH_PRIVATE_KEY`),
+dossier `public_html`, et secret `CPANEL_API_TOKEN` grâce auquel le déploiement autorise l'adresse IP de GitHub dans
+le pare-feu SSH d'o2switch le temps du job, puis la retire.
+
 ### 1. Accès SSH pour GitHub
 
 L'offre Starter ne permet pas de déposer une clé SSH (le dossier personnel n'est pas modifiable) : GitHub se connecte
@@ -74,6 +78,7 @@ Garder toutes les lignes affichées.
 | `SSH_PASSWORD` | le mot de passe SSH du compte `i-dia2811273` (celui du compte FTP) |
 | `SSH_KNOWN_HOSTS` | la sortie de `ssh-keyscan` |
 | `DEPLOY_TOKEN` | le jeton écrit dans `app.env` (DEPLOIEMENT_LWS.md, étape 3) |
+| `CPANEL_API_TOKEN` | o2switch uniquement : jeton d'API cPanel (DEPLOIEMENT_O2SWITCH.md, étape 6) |
 
 **Même page, onglet Variables > New repository variable**
 
@@ -88,7 +93,7 @@ Garder toutes les lignes affichées.
 
 **Protéger `main`** (si l'offre GitHub le permet) : Settings > Rules > Rulesets > New branch ruleset, cible la branche
 par défaut, cocher « Require a pull request before merging » et « Require status checks to pass » avec `Analyse statique`
-et les deux `Tests (…)`. Sinon, toujours passer par une pull request et attendre la coche verte avant de merger.
+et les trois `Tests (…)`. Sinon, toujours passer par une pull request et attendre la coche verte avant de merger.
 
 ### 3. Première mise en ligne
 
@@ -146,6 +151,7 @@ ruff check .
 
 | Message dans le journal GitHub | Cause probable |
 |---|---|
+| `Autorisation SSH refusée par o2switch` | `CPANEL_API_TOKEN` faux, ou plus de place libre (5 au maximum) dans l'outil Autorisation SSH de cPanel |
 | `Envoi impossible : connexion SSH refusée` | mot de passe (`SSH_PASSWORD`) ou identifiant (`SSH_USER`) incorrect, ou `SSH_KNOWN_HOSTS` à refaire |
 | `Host key verification failed` | `SSH_KNOWN_HOSTS` manquant ou différent : refaire `ssh-keyscan` |
 | `Connection timed out` | accès SSH désactivé ou filtré par adresse IP chez LWS |

@@ -1,4 +1,4 @@
-# Intégration continue (contrôles + tests) à chaque push et pull request, puis déploiement sur LWS (offre Starter, PHP) :
+# Intégration continue (contrôles + tests) à chaque push et pull request, puis déploiement sur l'hébergement mutualisé (PHP) :
 #   - publication d'une version vX.Y.Z (tag ou Release GitHub)      -> production
 #   - merge sur main, si une préproduction est configurée          -> préproduction
 #   - lancement manuel (onglet Actions > CI/CD > Run workflow)      -> l'environnement choisi
@@ -51,16 +51,20 @@ jobs:
         run: shellcheck -S warning -e SC2011 deploy/*.sh
 
   test:
-    name: Tests (PHP ${{ matrix.php }})
+    name: Tests (PHP ${{ matrix.php }}, PostgreSQL ${{ matrix.postgres }})
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
-        # 8.0 : version la plus ancienne acceptée ; 8.3 : version récente (celle à choisir chez LWS).
-        php: ['8.0', '8.3']
+        # PHP 8.0 : version la plus ancienne acceptée ; 8.3 : version à choisir chez l'hébergeur.
+        # PostgreSQL 9.6 : version fournie par o2switch ; 15 : version fournie par LWS.
+        include:
+          - {php: '8.0', postgres: '9.6'}
+          - {php: '8.3', postgres: '9.6'}
+          - {php: '8.3', postgres: '15'}
     services:
       postgres:
-        image: postgres:15
+        image: postgres:${{ matrix.postgres }}
         env:
           POSTGRES_DB: idialogos_test
           POSTGRES_USER: test
@@ -101,6 +105,7 @@ jobs:
         with:
           ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }}
           ssh-password: ${{ secrets.SSH_PASSWORD }}
+          cpanel-api-token: ${{ secrets.CPANEL_API_TOKEN }}
           ssh-known-hosts: ${{ secrets.SSH_KNOWN_HOSTS }}
           deploy-token: ${{ secrets.PREPROD_DEPLOY_TOKEN || secrets.DEPLOY_TOKEN }}
           ssh-host: ${{ vars.SSH_HOST }}
@@ -133,6 +138,7 @@ jobs:
         with:
           ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }}
           ssh-password: ${{ secrets.SSH_PASSWORD }}
+          cpanel-api-token: ${{ secrets.CPANEL_API_TOKEN }}
           ssh-known-hosts: ${{ secrets.SSH_KNOWN_HOSTS }}
           deploy-token: ${{ secrets.DEPLOY_TOKEN }}
           ssh-host: ${{ vars.SSH_HOST }}

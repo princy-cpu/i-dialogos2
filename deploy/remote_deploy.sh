@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Installe une version sur le serveur LWS (offre Starter, PHP). Exécuté par deploy/deploy.sh via SSH.
+# Installe une version sur l'hébergement mutualisé (LWS, o2switch...). Exécuté par deploy/deploy.sh via SSH.
 #
 #   bash remote_deploy.sh prepare  <dossier_web> <dossier_reçu> <commit>     valide la version reçue, sans la mettre en ligne
 #   bash remote_deploy.sh activate <dossier_web> <version>                    met cette version en ligne
@@ -45,11 +45,25 @@ case "$ACTION" in
     for file in src/front.php public/index.php public/.htaccess public/app.htaccess public/uploads.htaccess index.html; do
       [ -f "$TARGET/$file" ] || { rm -rf "$TARGET"; fail "fichier $file absent de la version reçue"; }
     done
-    if command -v php >/dev/null 2>&1; then
-      for file in "$TARGET"/src/*.php "$TARGET"/public/index.php; do
-        php -l "$file" >/dev/null || { rm -rf "$TARGET"; fail "erreur de syntaxe PHP dans $file"; }
+    # Programme PHP pour vérifier la syntaxe : version 8 ou plus. Sur LWS, « php » n'est qu'un alias du terminal
+    # interactif ; sur cPanel (o2switch), la version de la ligne de commande peut différer de celle du site.
+    PHP_BIN="${PHP_BIN:-}"
+    if [ -z "$PHP_BIN" ]; then
+      shopt -s nullglob
+      for candidate in "$(command -v php 2>/dev/null || true)" /usr/bin/php[0-9]* /usr/local/bin/php[0-9]* \
+          /opt/cpanel/ea-php8*/root/usr/bin/php /opt/alt/php8*/usr/bin/php; do
+        [ -n "$candidate" ] && [ -x "$candidate" ] || continue
+        [[ "$("$candidate" -r 'echo PHP_MAJOR_VERSION;' 2>/dev/null)" =~ ^[89]$ ]] && PHP_BIN="$candidate"
       done
-      log "Syntaxe PHP vérifiée"
+      shopt -u nullglob
+    fi
+    if [ -n "$PHP_BIN" ]; then
+      for file in "$TARGET"/src/*.php "$TARGET"/public/index.php; do
+        "$PHP_BIN" -l "$file" >/dev/null || { rm -rf "$TARGET"; fail "erreur de syntaxe PHP dans ${file#"$TARGET"/} : version non mise en ligne"; }
+      done
+      log "Syntaxe PHP vérifiée ($("$PHP_BIN" -r 'echo PHP_VERSION;'))"
+    else
+      log "PHP 8 introuvable en ligne de commande : vérification de syntaxe sautée (le contrôle de santé reste actif)"
     fi
     echo "VERSION=$VERSION"
     ;;
@@ -58,6 +72,17 @@ case "$ACTION" in
     VERSION="${3:?version manquante}"
     TARGET="$BASE/releases/$VERSION"
     [ -f "$TARGET/src/front.php" ] || fail "version $VERSION introuvable"
+
+    # Bloc ajouté par cPanel (MultiPHP) dans le .htaccess pour choisir la version de PHP : conservé en tête du nouveau.
+    handler=''
+    if [ -f "$WEB/.htaccess" ]; then
+      inside=0
+      while IFS= read -r line || [ -n "$line" ]; do
+        [[ "$line" == '# php -- BEGIN cPanel-generated handler'* ]] && inside=1
+        if [ "$inside" = 1 ]; then handler+="$line"$'\n'; fi
+        [[ "$line" == '# php -- END cPanel-generated handler'* ]] && inside=0
+      done < "$WEB/.htaccess"
+    fi
 
     # Première mise en place : l'ancien contenu du site (WordPress...) est mis de côté, hors d'atteinte du web.
     if [ ! -f "$BASE/current" ]; then
@@ -79,7 +104,11 @@ case "$ACTION" in
     install_file "$TARGET/public/app.htaccess" "$BASE/.htaccess"
     install_file "$TARGET/public/uploads.htaccess" "$WEB/uploads/.htaccess"
     install_file "$TARGET/public/index.php" "$WEB/index.php"
-    install_file "$TARGET/public/.htaccess" "$WEB/.htaccess"
+    {
+      if [ -n "$handler" ]; then printf '%s\n' "$handler"; fi
+      while IFS= read -r line || [ -n "$line" ]; do printf '%s\n' "$line"; done < "$TARGET/public/.htaccess"
+    } > "$WEB/.htaccess.tmp-$STAMP"
+    mv -f "$WEB/.htaccess.tmp-$STAMP" "$WEB/.htaccess"
 
     printf '%s\n' "$VERSION" > "$BASE/current.tmp-$STAMP"
     mv -f "$BASE/current.tmp-$STAMP" "$BASE/current"
