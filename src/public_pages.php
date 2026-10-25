@@ -173,10 +173,23 @@ function donate_button(): string
     return $url === '' ? '' : '<a class="donate-button" href="' . esc($url) . '" target="_blank" rel="noopener" aria-label="Faire un don"><span aria-hidden="true">♥</span> <span class="donate-label">Faire un don</span></a>';
 }
 
+/** Boutons du bandeau d'appels à l'action du pied de page (chacun masqué si son adresse n'est pas réglée). */
+function footer_cta_link(string $url, string $label, string $icon, string $class = ''): string
+{
+    if ($url === '') {
+        return '';
+    }
+    return '<a class="footer-cta-button' . ($class !== '' ? ' ' . $class : '') . '" href="' . esc($url) . '" target="_blank" rel="noopener"><span aria-hidden="true">' . $icon . '</span> <span>' . esc($label) . '</span></a>';
+}
+
 /** Remplace les emplacements réservés d'index.html par les liens configurés. */
 function site_links(string $html): string
 {
-    return str_replace('<span id="donate-slot"></span>', donate_button(), $html);
+    return str_replace(
+        ['<span id="donate-slot"></span>', '<span id="footer-donate-slot"></span>', '<span id="membership-slot"></span>'],
+        [donate_button(), footer_cta_link(donation_url(), 'Faire un don', '♥', 'is-donate'), footer_cta_link(membership_url(), 'Devenir adhérent', '★')],
+        $html
+    );
 }
 
 /**
@@ -205,6 +218,7 @@ function site_chrome(array $themes): array
     $footerEnd = strpos($page, '</footer>') + strlen('</footer>');
     $header = substr($page, $headerStart, $headerEnd - $headerStart);
     $footer = substr($page, $footerStart, $footerEnd - $footerStart);
+    $footer = site_links($footer);
     $header = str_replace('<div id="themes-menu"></div>', '<div id="themes-menu">' . theme_links($themes) . '</div>', $header);
     $header = mark_active_nav(site_links($header), request()->path);
     $parts = [];

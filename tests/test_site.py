@@ -304,6 +304,18 @@ def test_en_tete_logo_don_et_lien_actif(visitor):
     assert 'aria-current="page"' not in visitor.get('/actualites').text.split('</header>', 1)[0].split('<nav aria-label="Navigation principale">', 1)[1]
 
 
+
+# --- Lot 2 : pied de page -------------------------------------------------------------------------------------------
+
+def test_pied_de_page_appels_a_l_action(visitor):
+    for path in ('/', '/analyses'):
+        footer = visitor.get(path).text.split('<footer', 1)[1]
+        assert 'class="footer-cta"' in footer
+        assert 'class="footer-cta-button is-donate" href="https://exemple.org/don"' in footer
+        assert 'href="https://www.helloasso.com/associations/i-dialogos-international/adhesions/adhesions-i-dialogos-2026"' in footer
+        assert 'data-newsletter-link' in footer and 'S’abonner à la newsletter' in footer
+
+
 def test_operations_de_deploiement(server_url):
     client = Client(server_url)
     assert client.post('/_ops/migrate', []).status == 403

@@ -321,3 +321,21 @@ header#accueil.is-condensed .logo{transform:scale(.84)}
 @media(max-width:960px){.head:has(.donate-button){grid-template-columns:205px 1fr auto 38px}.donate-button{padding:9px 14px;font-size:13px}}
 @media(max-width:680px){.head:has(.donate-button){grid-template-columns:1fr auto 35px 36px}.head .logo{order:0}.head .donate-button{order:1}.head .menu-toggle{order:2}.head .search-button{order:3}}
 @media(max-width:420px){.donate-label{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}.donate-button{padding:9px 12px}}
+
+/* === Pied de page : bandeau d'appels à l'action === */
+.footer-cta{grid-column:1/-1;display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:18px 28px;padding:6px 0 30px;margin-bottom:6px;border-bottom:1px solid #ffffff26}
+.footer-cta h2{margin:0;font:600 clamp(22px,2.4vw,30px)/1.2 var(--serif);color:#fff}
+.footer-cta-actions{display:flex;flex-wrap:wrap;gap:12px}
+.footer-cta-button{display:inline-flex;align-items:center;justify-content:center;gap:8px;min-height:46px;padding:11px 22px;border:1.5px solid #ffffffcc;border-radius:999px;color:#fff;font:700 15px/1.2 var(--sans);text-decoration:none;transition:background .2s,color .2s,transform .2s var(--ease),border-color .2s}
+.footer-cta-button:hover{background:#fff;color:#073f2c;border-color:#fff;text-decoration:none;transform:translateY(-2px)}
+.footer-cta-button.is-donate{background:var(--mk-orange);border-color:var(--mk-orange);color:#2b1700}
+.footer-cta-button.is-donate span[aria-hidden="true"]{color:#b3241b}
+.footer-cta-button.is-donate:hover{background:#f6b65e;border-color:#f6b65e;color:#2b1700}
+footer .footer-cta-button:focus-visible{outline:3px solid var(--mk-orange);outline-offset:3px}
+@media(max-width:680px){.footer-cta{flex-direction:column;align-items:stretch}.footer-cta-actions{flex-direction:column}.footer-cta-button{width:100%}}
+@media(min-width:681px){footer .footer-cta{grid-row:1}footer>div{grid-row:2}footer nav{grid-row:2}footer .copyright{grid-row:3}footer .back-top{grid-row:3}}
+/* Tablettes (681–900 px) : le menu complet n'y tient pas (il débordait déjà) ; même menu compact (☰) que sur téléphone. */
+@media(min-width:681px) and (max-width:900px){.head{position:relative;min-height:72px;grid-template-columns:1fr 35px 36px;gap:12px}.head:has(.donate-button){grid-template-columns:1fr auto 35px 36px}.menu-toggle{display:block;border:0;background:transparent;color:var(--forest);font-size:24px;cursor:pointer}.head nav{display:none;position:absolute;z-index:18;top:72px;left:0;right:0;padding:15px 28px 22px;background:#fff;border-top:1px solid #eee;box-shadow:0 12px 20px #0002;align-items:stretch;flex-direction:column;gap:13px;font-size:16px}.head nav.open{display:flex}.head nav>details>div{position:static;box-shadow:none;border:0;padding:4px 0 0 12px}.head nav>details[open]{width:100%}.head nav>details>div a{font-size:13px}.head .logo{order:0}.head .donate-button{order:1}.head .menu-toggle{order:2}.head .search-button{order:3}}
+/* Écrans moyens (901–1180 px) : bouton de don réduit au cœur (libellé gardé pour les lecteurs d'écran). */
+@media(min-width:901px) and (max-width:1180px){.donate-label{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}.donate-button{padding:10px 12px}}
+@media(min-width:961px) and (max-width:1180px){.head nav{gap:14px;font-size:16px}}

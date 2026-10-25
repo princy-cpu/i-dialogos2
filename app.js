@@ -243,3 +243,18 @@ if ('IntersectionObserver' in window) {
   }), { rootMargin: '-45% 0px -50% 0px' });
   sectionLinks.forEach((_, section) => spy.observe(section));
 }
+
+// « S'abonner à la newsletter » (pied de page) : défile jusqu'au formulaire et place le curseur dans le champ e-mail.
+// Depuis une autre page, le lien ouvre /#infolettre et le champ reçoit le focus au chargement.
+const focusNewsletter = () => {
+  const section = document.querySelector('#infolettre');
+  const input = document.querySelector('#newsletter-form input[type="email"]');
+  if (!section || !input) return false;
+  section.scrollIntoView({ behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth', block: 'center' });
+  input.focus({ preventScroll: true });
+  return true;
+};
+document.querySelectorAll('[data-newsletter-link]').forEach(link => link.addEventListener('click', event => {
+  if (focusNewsletter()) event.preventDefault();
+}));
+if (location.hash === '#infolettre') addEventListener('load', focusNewsletter);
