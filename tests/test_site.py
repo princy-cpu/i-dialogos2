@@ -20,13 +20,13 @@ def category_field(page: str) -> tuple[str, list[str]]:
     return match[0][0], [value for _, value in match]
 
 
-def create_article(admin, title: str, status: str = 'published', **extra) -> str:
+def create_article(admin, title: str, status: str = 'published', category: int = 4, tags: str = 'Paix, #Afrique', **extra) -> str:
     form = admin.get('/admin/articles/new').text
     token = re.search(r'name="_csrf" value="([^"]+)"', form).group(1)
     field, categories = category_field(form)
     fields = [('_csrf', token), ('title', title), ('excerpt', extra.get('excerpt', 'Chapô éàü, 50 %')),
               ('body_html', extra.get('body', '<p>Texte <strong>riche</strong> 😀</p>')), ('author', 'Jean-Claude Mairal'),
-              ('language', 'fr'), ('status', status), (field, categories[4]), ('new_tags', 'Paix, #Afrique'), ('comments_enabled', '1')]
+              ('language', 'fr'), ('status', status), (field, categories[category]), ('new_tags', tags), ('comments_enabled', '1')]
     response = admin.post('/admin/articles/save', fields, files={'featured_image': ('photo.png', 'image/png', PNG)})
     assert response.status == 303, response.text[:500]
     return query('SELECT id FROM articles WHERE title=%s', (title,))[0]['id']
@@ -192,6 +192,100 @@ def test_fichiers_statiques_et_erreurs(visitor):
     assert missing.status == 404 and 'introuvable' in missing.text
     for path in ('/uploads/../src/config.php', '/src/config.php', '/assets/../src/db.php', '/../app.env'):
         assert visitor.get(path).status in (400, 404), path  # Apache refuse lui-même les chemins en « .. » (400)
+
+
+# --- Accueil, listes paginées et filtrées, articles similaires ---------------------------------------------------------
+
+def create_event(admin, title: str, kind: str = 'news', summary: str = 'Résumé de l’actualité') -> None:
+    token = admin.csrf('/admin/events/new')
+    response = admin.post('/admin/events/save', [('_csrf', token), ('kind', kind), ('title', title), ('summary', summary), ('body', 'Texte'),
+                                                 ('location', ''), ('starts_at', ''), ('ends_at', ''), ('status', 'published'),
+                                                 ('language', 'fr'), ('image_url', '')])
+    assert response.status == 303
+
+
+def card_slugs(html: str) -> list[str]:
+    return re.findall(r'class="public-card-image" href="/article/([^"]+)"', html)
+
+
+def test_accueil_quatre_analyses_et_actualites(admin, visitor):
+    for number in range(6):
+        create_article(admin, f'Accueil limité {number}')
+        create_event(admin, f'Actualité accueil {number}')
+    page = visitor.get('/').text
+    assert page.count('class="analysis-item"') == 4
+    assert len(re.findall(r'<article class="event-entry"', page)) == 4
+    assert 'data-carousel' in page and 'class="clamp-3"' in page
+    assert 'href="/analyses"' in page and 'href="/actualites"' in page
+    assert 'id="public-feed"' not in page  # le bloc « Les Notes » est remplacé par un lien vers /analyses
+
+
+def test_pagination_des_analyses(admin, visitor):
+    for number in range(12):
+        article_id = create_article(admin, f'Paginationzeta numéro {number:02d}')
+        query('UPDATE articles SET published_at=%s WHERE id=%s', (f'2020-01-{number + 1:02d}T10:00:00+00:00', article_id))
+    first = visitor.get('/analyses?q=Paginationzeta')
+    assert first.status == 200 and len(card_slugs(first.text)) == 10
+    assert '<nav class="pagination" aria-label="Pagination">' in first.text and 'aria-current="page"' in first.text
+    assert 'href="/analyses?q=Paginationzeta&amp;page=2"' in first.text  # le filtre est conservé dans la pagination
+    assert 'numéro 11' in first.text and 'numéro 01' not in first.text  # du plus récent au plus ancien
+    second = visitor.get('/analyses?q=Paginationzeta&page=2')
+    assert second.status == 200 and len(card_slugs(second.text)) == 2 and 'numéro 00' in second.text
+    beyond = visitor.get('/analyses?q=Paginationzeta&page=3')
+    assert beyond.status == 404
+    assert 'id="accueil"' in beyond.text and '<footer' in beyond.text and 'href="/analyses?q=Paginationzeta"' in beyond.text
+    assert visitor.get('/analyses?page=abc').status == 200  # numéro invalide : page 1
+
+
+def test_filtres_combines(admin, visitor):
+    alpha = create_article(admin, 'Filtrexyz alpha', category=1, tags='Kivu, Musique')
+    beta = create_article(admin, 'Filtrexyz beta', category=1, tags='Kivu')
+    create_article(admin, 'Filtrexyz gamma', category=2, tags='Kivu')
+    create_article(admin, 'Filtrexyz delta brouillon', category=1, tags='Kivu', status='draft')
+    category = query('SELECT c.slug FROM categories c JOIN article_categories ac ON ac.category_id=c.id WHERE ac.article_id=%s', (alpha,))[0]['slug']
+    page = visitor.get(f'/analyses?categorie={category}&tag=kivu&q=Filtrexyz').text
+    assert 'Filtrexyz alpha' in page and 'Filtrexyz beta' in page
+    assert 'Filtrexyz gamma' not in page and 'brouillon' not in page
+    assert f'<option value="{category}" selected>' in page  # le filtre reste sélectionné
+    music = visitor.get(f'/analyses?categorie={category}&tag=musique&q=Filtrexyz').text
+    assert 'Filtrexyz alpha' in music and 'Filtrexyz beta' not in music
+    query('UPDATE articles SET language=%s WHERE id=%s', ('en', beta))
+    english = visitor.get('/analyses?langue=en&q=Filtrexyz').text
+    assert 'Filtrexyz beta' in english and 'Filtrexyz alpha' not in english
+    empty = visitor.get('/analyses?q=Filtrexyz&tag=inexistant')
+    assert empty.status == 200 and 'Aucun résultat ne correspond à ces filtres.' in empty.text
+    hostile = visitor.get('/analyses?q=%25_%27%22%3Cscript%3E')  # pris au pied de la lettre, sans erreur ni injection
+    assert hostile.status == 200 and '<script>' not in hostile.text.split('</header>', 1)[1].split('<footer', 1)[0]
+
+
+def test_liste_des_actualites_filtree(admin, visitor):
+    create_event(admin, 'Typefiltre colloque', kind='event')
+    create_event(admin, 'Typefiltre annonce', kind='news')
+    events = visitor.get('/actualites?type=event&q=Typefiltre').text
+    assert 'Typefiltre colloque' in events and 'Typefiltre annonce' not in events
+    assert visitor.get('/actualites?q=Typefiltre&page=5').status == 404
+
+
+def test_anciennes_adresses_redirigees(visitor):
+    response = visitor.get('/?category=democraties')
+    assert response.status == 301 and response.location == '/analyses?categorie=democraties'
+    assert visitor.get('/?tag=paix&q=dialogue').location == '/analyses?tag=paix&q=dialogue'
+
+
+def test_articles_similaires_et_navigation(admin, visitor):
+    main = create_article(admin, 'Similaire principal', category=6, tags='Sahel, Eau')
+    close = create_article(admin, 'Similaire proche', category=6, tags='Sahel, Eau')
+    draft = create_article(admin, 'Similaire brouillon', category=6, tags='Sahel, Eau', status='draft')
+    for number in range(2):
+        create_article(admin, f'Similaire autre {number}', category=7, tags='Autre')
+    query('UPDATE articles SET published_at=%s WHERE id=%s', ('2031-01-01T10:00:00+00:00', main))
+    query('UPDATE articles SET published_at=%s WHERE id=%s', ('2031-01-02T10:00:00+00:00', close))
+    page = visitor.get(f'/article/{article_slug(main)}').text
+    related = card_slugs(page.split('id="related-title"', 1)[1])
+    assert 3 <= len(related) <= 4
+    assert article_slug(main) not in related and article_slug(draft) not in related  # jamais l'article courant ni un brouillon
+    assert related[0] == article_slug(close)  # celui qui partage le plus de thèmes et de mots-clés
+    assert f'rel="next" href="/article/{article_slug(close)}"' in page and 'rel="prev"' in page
 
 
 def test_operations_de_deploiement(server_url):

@@ -23,65 +23,91 @@ document.querySelector('#search-close')?.addEventListener('click', () => search.
 search?.addEventListener('submit', event => {
   event.preventDefault();
   const query = document.querySelector('#site-search').value.trim();
-  // Hors de l'accueil (article, thématique…), la recherche se fait sur la page d'accueil.
-  if (location.pathname !== '/' && query) {
-    location.href = `/?q=${encodeURIComponent(query)}`;
-    return;
-  }
-  const term = query.toLocaleLowerCase('fr');
-  const cards = [...document.querySelectorAll('.public-article-card, .analysis-item, .mk-theme')];
-  const matches = cards.filter(card => card.textContent.toLocaleLowerCase('fr').includes(term));
-  // Les articles trouvés au-delà des 12 premiers sont affichés.
-  matches.forEach(card => { if (card.classList.contains('public-article-card')) card.hidden = false; });
-  document.querySelector('#search-feedback').textContent = term ? `${matches.length} résultat${matches.length === 1 ? '' : 's'} pour « ${term} ».` : 'Saisissez un mot-clé pour lancer la recherche.';
-  if (matches[0]) matches[0].scrollIntoView({ behavior: 'smooth', block: 'center' });
+  // La recherche du site se fait dans la liste des analyses (titre et extrait, texte original).
+  if (query) location.href = `/analyses?q=${encodeURIComponent(query)}`;
+  else document.querySelector('#search-feedback').textContent = 'Saisissez un mot-clé pour lancer la recherche.';
 });
 document.querySelector('#language-button')?.addEventListener('click', event => {
   event.currentTarget.textContent = event.currentTarget.textContent.includes('Français') ? 'Langues⌄' : 'Français · English⌄';
 });
-const categoryFilter = document.querySelector('#public-theme-filter');
-const tagFilter = document.querySelector('#public-tag-filter');
-// Les articles s'affichent par pages de 12 ; les filtres portent sur l'ensemble des articles.
-const PAGE_SIZE = 12;
-let shownArticles = PAGE_SIZE;
-const articleGrid = document.querySelector('#public-feed') || document.querySelector('.public-article-grid');
-const moreButton = document.createElement('button');
-moreButton.type = 'button';
-moreButton.className = 'theme-button more-articles';
-moreButton.textContent = 'Voir plus d’articles';
-moreButton.hidden = true;
-articleGrid?.after(moreButton);
-moreButton.addEventListener('click', () => {
-  shownArticles += PAGE_SIZE;
-  filterArticles(false);
-});
-function filterArticles(resetPage = true) {
-  if (resetPage) shownArticles = PAGE_SIZE;
-  const category = categoryFilter?.value || '';
-  const tag = tagFilter?.value || '';
-  let matching = 0;
-  document.querySelectorAll('.public-article-card').forEach(card => {
-    const categories = (card.dataset.categories || '').split(' ');
-    const tags = (card.dataset.tags || '').split(' ');
-    const matches = (!category || categories.includes(category)) && (!tag || tags.includes(tag));
-    if (matches) matching++;
-    card.hidden = !matches || matching > shownArticles;
+// Pages de thématique : les articles s'affichent par 12 avec « Voir plus d'articles »
+// (les listes /analyses et /actualites sont paginées par le serveur).
+const themeGrid = document.querySelector('.theme-articles');
+if (themeGrid) {
+  const PAGE_SIZE = 12;
+  let shown = PAGE_SIZE;
+  const cards = [...themeGrid.querySelectorAll('.public-article-card')];
+  const moreButton = document.createElement('button');
+  moreButton.type = 'button';
+  moreButton.className = 'theme-button more-articles';
+  moreButton.textContent = 'Voir plus d’articles';
+  themeGrid.after(moreButton);
+  const showPage = () => {
+    cards.forEach((card, index) => { card.hidden = index >= shown; });
+    moreButton.hidden = cards.length <= shown;
+  };
+  moreButton.addEventListener('click', () => {
+    shown += PAGE_SIZE;
+    showPage();
   });
-  moreButton.hidden = matching <= shownArticles;
-  const count = document.querySelector('#public-article-count');
-  if (count) count.textContent = `${matching} article${matching === 1 ? '' : 's'}`;
+  showPage();
 }
-categoryFilter?.addEventListener('change', () => filterArticles());
-tagFilter?.addEventListener('change', () => filterArticles());
-const params = new URLSearchParams(location.search);
-if (categoryFilter && params.has('category')) categoryFilter.value = params.get('category');
-if (tagFilter && params.has('tag')) tagFilter.value = params.get('tag');
-filterArticles();
-if (search && params.get('q')) {
-  search.classList.add('open');
-  document.querySelector('#site-search').value = params.get('q');
-  search.requestSubmit();
-}
+
+// Carrousel manuel des actualités de l'accueil : boutons ‹ ›, points, clavier ; aucun défilement automatique.
+const reduceMotionCarousel = matchMedia('(prefers-reduced-motion: reduce)').matches;
+document.querySelectorAll('[data-carousel]').forEach(carousel => {
+  const track = carousel.querySelector('.news-track');
+  const slides = [...track.children];
+  if (slides.length < 2) return;
+  carousel.classList.add('is-enhanced');
+  const controls = document.createElement('div');
+  controls.className = 'carousel-controls';
+  const makeButton = (label, text, className) => {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = className;
+    button.setAttribute('aria-label', label);
+    button.textContent = text;
+    return button;
+  };
+  const previous = makeButton('Élément précédent', '‹', 'carousel-button');
+  const next = makeButton('Élément suivant', '›', 'carousel-button');
+  const dots = document.createElement('div');
+  dots.className = 'carousel-dots';
+  const dotButtons = slides.map((_, index) => makeButton(`Afficher l’élément ${index + 1} sur ${slides.length}`, '', 'carousel-dot'));
+  dots.append(...dotButtons);
+  controls.append(previous, dots, next);
+  carousel.append(controls);
+  const current = () => Math.round(track.scrollLeft / Math.max(1, track.clientWidth));
+  const goTo = index => {
+    const target = Math.max(0, Math.min(slides.length - 1, index));
+    track.scrollTo({ left: slides[target].offsetLeft - track.offsetLeft, behavior: reduceMotionCarousel ? 'auto' : 'smooth' });
+  };
+  const update = () => {
+    const index = current();
+    previous.disabled = index === 0;
+    next.disabled = index >= slides.length - 1;
+    dotButtons.forEach((dot, position) => dot.setAttribute('aria-current', String(position === index)));
+    // Les éléments hors champ ne sont ni lus ni atteignables au clavier tant qu'ils ne sont pas affichés.
+    slides.forEach((slide, position) => { slide.inert = position !== index; });
+  };
+  previous.addEventListener('click', () => goTo(current() - 1));
+  next.addEventListener('click', () => goTo(current() + 1));
+  dotButtons.forEach((dot, index) => dot.addEventListener('click', () => goTo(index)));
+  track.addEventListener('keydown', event => {
+    if (event.key === 'ArrowRight') goTo(current() + 1);
+    else if (event.key === 'ArrowLeft') goTo(current() - 1);
+    else return;
+    event.preventDefault();
+  });
+  let queued = false;
+  track.addEventListener('scroll', () => {
+    if (queued) return;
+    queued = true;
+    requestAnimationFrame(() => { queued = false; update(); });
+  }, { passive: true });
+  update();
+});
 document.querySelectorAll('#quick-newsletter,#newsletter-form').forEach(form => form.addEventListener('submit', event => {
   event.preventDefault();
   const feedback = form.querySelector('[aria-live="polite"]') || document.createElement('span');

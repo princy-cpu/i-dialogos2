@@ -223,16 +223,16 @@ function public_analysis_article(array $article): string
     $image = $article['featured_image'] ? '<img src="' . esc($article['featured_image']) . '" alt="Image mise en avant de ' . esc($article['title']) . '" loading="lazy">' : '<span class="analysis-image-placeholder">I·D</span>';
     $date = long_date(article_date($article), $article['display_language'] ?? 'fr');
     $href = '/article/' . q($article['slug']);
-    return '<article class="analysis-item" lang="' . esc(content_lang($article)) . '"><a href="' . $href . '" tabindex="-1">' . $image . '</a><div><h3><a href="' . $href . '">' . esc($article['title']) . '</a> <span class="analysis-author">' . esc($article['author']) . '</span></h3><p>' . esc($article['excerpt']) . '</p><time class="mk-date">' . esc($date) . '</time></div></article>';
+    return '<article class="analysis-item" lang="' . esc(content_lang($article)) . '"><a href="' . $href . '" tabindex="-1">' . $image . '</a><div><h3><a href="' . $href . '">' . esc($article['title']) . '</a> <span class="analysis-author">' . esc($article['author']) . '</span></h3><p class="clamp-3">' . esc($article['excerpt']) . '</p><time class="mk-date">' . esc($date) . '</time></div></article>';
 }
 
-function public_news_event_card(array $item): string
+function public_news_event_card(array $item, bool $clamp = true): string
 {
     $label = $item['kind'] === 'event' ? 'Événement' : 'Actualité';
     $date = (string) ($item['starts_at'] ?: $item['created_at']);
     $when = $date !== '' ? '<time>' . esc(substr($date, 0, 10)) . '</time>' : '';
     $location = $item['location'] ? '<span>' . esc($item['location']) . '</span>' : '';
-    return '<article class="event-entry" lang="' . esc(content_lang($item)) . '"><span class="event-kind">' . $label . '</span><h3><a href="/actualite/' . q($item['slug']) . '">' . esc($item['title']) . '</a></h3><p>' . esc($item['summary']) . '</p><div class="event-meta">' . $when . $location . '</div></article>';
+    return '<article class="event-entry" lang="' . esc(content_lang($item)) . '"><span class="event-kind">' . $label . '</span><h3><a href="/actualite/' . q($item['slug']) . '">' . esc($item['title']) . '</a></h3><p' . ($clamp ? ' class="clamp-3"' : '') . '>' . esc($item['summary']) . '</p><div class="event-meta">' . $when . $location . '</div></article>';
 }
 
 function public_card(array $article, array $cats, array $tags): string
@@ -241,7 +241,7 @@ function public_card(array $article, array $cats, array $tags): string
     $category = implode(', ', array_column($cats, 'name')) ?: 'Les Notes';
     $tagHtml = '';
     foreach ($tags as $row) {
-        $tagHtml .= '<a href="/?tag=' . q($row['slug']) . '#articles">#' . esc($row['name']) . '</a>';
+        $tagHtml .= '<a href="/analyses?tag=' . q($row['slug']) . '">#' . esc($row['name']) . '</a>';
     }
     $href = '/article/' . q($article['slug']);
     return '<article class="public-article-card" lang="' . esc(content_lang($article)) . '" data-categories="' . esc(implode(' ', array_column($cats, 'slug'))) . '" data-tags="' . esc(implode(' ', array_column($tags, 'slug'))) . '"><a class="public-card-image" href="' . $href . '">' . $image . '</a><div class="public-card-body"><div class="article-card-meta"><span>' . esc($category) . '</span><time>' . esc(substr(article_date($article), 0, 10)) . '</time></div><h3><a href="' . $href . '">' . esc($article['title']) . '</a></h3><p>' . esc($article['excerpt']) . '</p><div class="tag-chips">' . $tagHtml . '</div><a class="read-link" href="' . $href . '">Lire l’article <span>→</span></a></div></article>';
@@ -253,59 +253,37 @@ function sort_by_name(array $rows): array
     return $rows;
 }
 
+/** Bloc « Actualités / Événements » de l'accueil : carrousel manuel dès qu'il y a plus d'un élément. */
+function home_news_block(array $items): string
+{
+    if (!$items) {
+        return '<p class="public-empty-analysis" data-empty="events"></p>';
+    }
+    $cards = implode('', array_map(fn($item) => public_news_event_card($item), $items));
+    if (count($items) === 1) {
+        return $cards;
+    }
+    return '<div class="news-carousel" data-carousel aria-roledescription="carrousel"><div class="news-track" tabindex="0" role="region" aria-label="Actualités et événements">' . $cards . '</div></div>';
+}
+
 function public_home(): void
 {
     $db = db();
     $language = selected_language($db);
-    $articles = $db->all("SELECT * FROM articles WHERE status='published' ORDER BY published_at DESC NULLS FIRST, created_at DESC");
-    $categories = localize_terms($db, $db->all('SELECT * FROM categories ORDER BY name'), $language);
-    $tags = localize_terms($db, $db->all('SELECT * FROM tags ORDER BY name'), $language);
-    $newsEvents = $db->all("SELECT * FROM news_events WHERE status='published' ORDER BY CASE WHEN starts_at='' THEN created_at ELSE starts_at END DESC LIMIT 3");
-    $ids = array_column($articles, 'id');
-    $categoryLinks = $db->all('SELECT article_id,category_id FROM article_categories WHERE article_id = ANY(?)', [$ids]);
-    $tagLinks = $db->all('SELECT article_id,tag_id FROM article_tags WHERE article_id = ANY(?)', [$ids]);
+    $articles = $db->all("SELECT * FROM articles WHERE status='published' ORDER BY published_at DESC NULLS LAST, created_at DESC, id LIMIT 5");
+    $newsEvents = $db->all("SELECT * FROM news_events WHERE status='published' ORDER BY CASE WHEN starts_at='' THEN created_at ELSE starts_at END DESC, id DESC LIMIT 4");
     $articles = translate_records($db, $articles, $language, ['title', 'excerpt']);
     $newsEvents = translate_records($db, $newsEvents, $language, ['title', 'summary']);
     $themes = localized_themes($db, $language);
-    $categoriesById = array_column($categories, null, 'id');
-    $tagsById = array_column($tags, null, 'id');
-    $articleCats = [];
-    $articleTags = [];
-    foreach ($categoryLinks as $link) {
-        $articleCats[$link['article_id']][] = $categoriesById[$link['category_id']];
-    }
-    foreach ($tagLinks as $link) {
-        $articleTags[$link['article_id']][] = $tagsById[$link['tag_id']];
-    }
-    $categories = sort_by_name($categories);
-    $tags = sort_by_name($tags);
-    $cards = '';
-    foreach ($articles as $article) {
-        $cards .= public_card($article, sort_by_name($articleCats[$article['id']] ?? []), sort_by_name($articleTags[$article['id']] ?? []));
-    }
-    $cards = $cards ?: '<div class="empty-state" data-empty="articles"></div>';
-    $feed = '<div class="public-article-grid" id="public-feed">' . $cards . '</div>';
-    $themeOptions = '<option value="">Tous les thèmes</option>';
-    foreach ($categories as $row) {
-        $themeOptions .= '<option value="' . esc($row['slug']) . '">' . esc($row['name']) . '</option>';
-    }
-    $tagOptions = '<option value="">Tous les tags</option>';
-    foreach ($tags as $row) {
-        $tagOptions .= '<option value="' . esc($row['slug']) . '">' . esc($row['name']) . '</option>';
-    }
     $page = index_page();
     $featured = $articles ? public_featured_article($articles[0]) : '<div class="public-empty-featured" data-empty="articles"></div>';
     $page = str_replace('<div id="database-featured-article"></div>', $featured, $page);
-    $analysis = implode('', array_map('public_analysis_article', array_slice($articles, 1, 10))) ?: '<p class="public-empty-analysis" data-empty="articles"></p>';
+    $analysis = implode('', array_map('public_analysis_article', array_slice($articles, 1, 4))) ?: '<p class="public-empty-analysis" data-empty="articles"></p>';
     $page = str_replace('<div id="database-analysis-articles"></div>', $analysis, $page);
-    $events = implode('', array_map('public_news_event_card', $newsEvents)) ?: '<p class="public-empty-analysis" data-empty="events"></p>';
-    $page = str_replace('<div id="database-news-events"></div>', $events, $page);
+    $page = str_replace('<div id="database-news-events"></div>', home_news_block($newsEvents), $page);
     $page = (string) preg_replace('/\s*<section class="section editorial-workspace" id="atelier">.*?<\/section>\s*/s', "\n", $page);
     $page = (string) preg_replace('/<dialog class="modal-dialog.*?<\/dialog>\s*/s', '', $page);
     $page = str_replace('href="#atelier"', 'href="/admin"', $page);
-    $page = str_replace('id="public-theme-filter"><option value="">Tous les thèmes</option></select>', 'id="public-theme-filter">' . $themeOptions . '</select>', $page);
-    $page = str_replace('id="public-tag-filter"><option value="">Tous les tags</option></select>', 'id="public-tag-filter">' . $tagOptions . '</select>', $page);
-    $page = str_replace('<div class="public-article-grid" id="public-feed"></div>', $feed, $page);
     $page = str_replace('<div id="themes-menu"></div>', '<div id="themes-menu">' . theme_links($themes) . '</div>', $page);
     if ($language !== 'fr') {
         $page = translate_static_sections($db, $page, $language);
@@ -314,6 +292,24 @@ function public_home(): void
     $blocks = implode('', array_map(fn($theme) => theme_block($theme, '/thematique/' . q($theme['id'])), $themes));
     $page = str_replace('<div id="database-theme-blocks"></div>', $blocks, $page);
     send_body($page);
+}
+
+/** Anciennes adresses de l'accueil filtré (/?category=…, /?tag=…, /?q=…) : redirection permanente vers /analyses. */
+function legacy_home_filters_redirect(): bool
+{
+    $map = ['category' => 'categorie', 'tag' => 'tag', 'q' => 'q'];
+    $params = [];
+    foreach ($map as $old => $new) {
+        $value = filter_value($old);
+        if ($value !== '') {
+            $params[$new] = $value;
+        }
+    }
+    if (!$params) {
+        return false;
+    }
+    redirect(list_href('/analyses', $params), [], 301);
+    return true;
 }
 
 function article_taxonomy(Db $db, string $articleId): array
@@ -376,17 +372,8 @@ function public_theme(string $themeId): void
         $cards .= public_card($article, array_map(fn($row) => $catsById[$row['id']], $cats), array_map(fn($row) => $tagsById[$row['id']], $tags));
     }
     $listing = $cards ? '<div class="public-article-grid theme-articles">' . $cards . '</div>' : '<p class="theme-empty">Aucune publication pour cette thématique pour le moment.</p>';
-    $body = '<main class="article-page theme-page">' . theme_block($current, '#theme-articles', 'h1') . '<section id="theme-articles"><h2 class="theme-subtitle">Analyses et contributions</h2>' . $listing . '<a class="theme-button" href="/#articles">Toutes les analyses →</a></section>' . explore_themes($themes, 'Autres thématiques', $themeId) . '</main>';
+    $body = '<main class="article-page theme-page">' . theme_block($current, '#theme-articles', 'h1') . '<section id="theme-articles"><h2 class="theme-subtitle">Analyses et contributions</h2>' . $listing . '<a class="theme-button" href="/analyses?categorie=' . q($theme['category']) . '">Toutes les analyses →</a></section>' . explore_themes($themes, 'Autres thématiques', $themeId) . '</main>';
     public_page($current['title'], $body);
-}
-
-function public_news_events(): void
-{
-    $db = db();
-    $language = selected_language($db);
-    $items = translate_records($db, $db->all("SELECT * FROM news_events WHERE status='published' ORDER BY CASE WHEN starts_at='' THEN created_at ELSE starts_at END DESC"), $language, ['title', 'summary']);
-    $cards = implode('', array_map('public_news_event_card', $items)) ?: '<div class="public-empty-featured" data-empty="events"></div>';
-    public_page('Actualités et événements', '<main class="article-page"><span class="eyebrow">I-Dialogos</span><h1>Actualités et événements</h1><section class="event-list">' . $cards . '</section></main>');
 }
 
 function page_href(string $base): string
@@ -438,11 +425,11 @@ function public_article(string $slug): void
     $notice = translation_notice($article, $language, page_href('/article/' . q($slug)), $showOriginal && $article['language'] !== $language);
     $topicChips = '';
     foreach ($cats as $row) {
-        $topicChips .= '<a href="/?category=' . q($row['slug']) . '#articles">' . esc($row['name']) . '</a>';
+        $topicChips .= '<a href="/analyses?categorie=' . q($row['slug']) . '">' . esc($row['name']) . '</a>';
     }
     $tagsHtml = '';
     foreach ($tags as $row) {
-        $tagsHtml .= '<a href="/?tag=' . q($row['slug']) . '#articles">#' . esc($row['name']) . '</a>';
+        $tagsHtml .= '<a href="/analyses?tag=' . q($row['slug']) . '">#' . esc($row['name']) . '</a>';
     }
     $image = $article['featured_image'] ? '<img class="article-featured" src="' . esc($article['featured_image']) . '" alt="Image mise en avant de l’article">' : '';
     $commentsBlock = '';
@@ -457,7 +444,7 @@ function public_article(string $slug): void
     }
     $lang = $showOriginal ? $article['language'] : content_lang($article);
     $date = substr($article['published_at'] ?: $article['created_at'], 0, 10);
-    $body = '<main class="article-page" lang="' . esc($lang) . '">' . $notice . '<div class="article-topic-chips">' . $topicChips . '</div><h1>' . esc($article['title']) . '</h1><div class="article-byline">' . esc($article['author']) . ' · ' . esc($date) . '</div>' . $image . '<p class="article-excerpt">' . esc($article['excerpt']) . '</p><div class="article-rich-content">' . $article['body_html'] . '</div><div class="article-topic-chips article-tag-list">' . $tagsHtml . '</div>' . $commentsBlock . '<a class="back-public" href="/">← Retour à l’accueil</a></main>';
+    $body = '<main class="article-page" lang="' . esc($lang) . '">' . $notice . '<div class="article-topic-chips">' . $topicChips . '</div><h1>' . esc($article['title']) . '</h1><div class="article-byline">' . esc($article['author']) . ' · ' . esc($date) . '</div>' . $image . '<p class="article-excerpt">' . esc($article['excerpt']) . '</p><div class="article-rich-content">' . $article['body_html'] . '</div><div class="article-topic-chips article-tag-list">' . $tagsHtml . '</div>' . article_footer_links($db, $article, $language) . $commentsBlock . '<a class="back-public" href="/">← Retour à l’accueil</a></main>';
     public_page($article['title'], $body);
 }
 
