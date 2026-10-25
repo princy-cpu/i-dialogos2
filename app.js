@@ -133,12 +133,37 @@ const progressBar = document.createElement('div');
 progressBar.className = 'scroll-progress';
 progressBar.setAttribute('aria-hidden', 'true');
 document.body.prepend(progressBar);
-const toTop = document.createElement('a');
-toTop.href = '#accueil';
+// Retour en haut : un vrai défilement jusqu'à 0. L'ancienne ancre #accueil visait l'en-tête « collant »,
+// vers lequel les navigateurs ne défilent pas de façon fiable.
+const scrollToTop = () => {
+  const smooth = !matchMedia('(prefers-reduced-motion: reduce)').matches;
+  try {
+    window.scrollTo({ top: 0, left: 0, behavior: smooth ? 'smooth' : 'auto' });
+  } catch (_) {
+    window.scrollTo(0, 0);
+  }
+  if (location.hash) history.replaceState(null, '', location.pathname + location.search);
+  // Le focus revient en haut de page pour les personnes qui naviguent au clavier.
+  const logo = document.querySelector('.head .logo');
+  logo?.focus({ preventScroll: true });
+};
+const toTop = document.createElement('button');
+toTop.type = 'button';
 toTop.className = 'to-top';
 toTop.setAttribute('aria-label', 'Retour en haut');
 toTop.textContent = '↑';
+toTop.addEventListener('click', scrollToTop);
 document.body.append(toTop);
+document.querySelectorAll('.back-top').forEach(link => link.addEventListener('click', event => {
+  event.preventDefault();
+  scrollToTop();
+}));
+// Logo : sur l'accueil, retour en haut de page ; ailleurs, le lien « / » ouvre l'accueil en haut.
+document.querySelectorAll('.logo').forEach(logo => logo.addEventListener('click', event => {
+  if (location.pathname !== '/' || location.search) return;
+  event.preventDefault();
+  scrollToTop();
+}));
 let scrollQueued = false;
 const updateOnScroll = () => {
   scrollQueued = false;

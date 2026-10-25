@@ -166,6 +166,35 @@ function theme_block(array $theme, string $moreHref, string $titleTag = 'h2'): s
     return '<article class="mk-theme" id="theme-' . esc($theme['id']) . '" lang="' . esc(content_lang($theme)) . '"><' . $titleTag . ' class="mk-page-title">' . esc($theme['title']) . '</' . $titleTag . '><div class="mk-split"><img src="/assets/' . esc($theme['image']) . '" alt="Illustration : ' . esc($theme['title']) . '" loading="lazy"><div class="mk-theme-text">' . $question . $paragraphs . $signature . '<a class="mk-more" href="' . esc($moreHref) . '">Voir plus d’informations<br>' . esc($theme['button']) . '</a></div></div></article>';
 }
 
+/** Bouton « Faire un don » de l'en-tête (masqué tant que DONATION_URL n'est pas réglée). */
+function donate_button(): string
+{
+    $url = donation_url();
+    return $url === '' ? '' : '<a class="donate-button" href="' . esc($url) . '" target="_blank" rel="noopener" aria-label="Faire un don"><span aria-hidden="true">♥</span> <span class="donate-label">Faire un don</span></a>';
+}
+
+/** Remplace les emplacements réservés d'index.html par les liens configurés. */
+function site_links(string $html): string
+{
+    return str_replace('<span id="donate-slot"></span>', donate_button(), $html);
+}
+
+/**
+ * Lien de la page courante mis en évidence dans le menu (même style que le survol) : « Les Notes » pour les listes
+ * et articles, « Thématiques » (et le thème ouvert) sur une page de thématique.
+ */
+function mark_active_nav(string $header, string $path): string
+{
+    if ($path === '/analyses' || str_starts_with($path, '/article/')) {
+        return str_replace('<a href="/analyses">Les Notes</a>', '<a href="/analyses" class="is-active" aria-current="page">Les Notes</a>', $header);
+    }
+    if (preg_match('#^/thematique/([a-z0-9-]+)$#', $path, $match)) {
+        $header = str_replace('<summary>Thématiques</summary>', '<summary class="is-active">Thématiques</summary>', $header);
+        return str_replace('<a href="/thematique/' . $match[1] . '"', '<a href="/thematique/' . $match[1] . '" aria-current="page"', $header);
+    }
+    return $header;
+}
+
 /** En-tête et pied de page de l'accueil (index.html), réutilisés sur toutes les pages publiques. */
 function site_chrome(array $themes): array
 {
@@ -177,6 +206,7 @@ function site_chrome(array $themes): array
     $header = substr($page, $headerStart, $headerEnd - $headerStart);
     $footer = substr($page, $footerStart, $footerEnd - $footerStart);
     $header = str_replace('<div id="themes-menu"></div>', '<div id="themes-menu">' . theme_links($themes) . '</div>', $header);
+    $header = mark_active_nav(site_links($header), request()->path);
     $parts = [];
     foreach ([$header, $footer] as $part) {
         // Les ancres de l'accueil (#apropos…) pointent vers la page d'accueil depuis les autres pages.
@@ -285,6 +315,7 @@ function public_home(): void
     $page = (string) preg_replace('/<dialog class="modal-dialog.*?<\/dialog>\s*/s', '', $page);
     $page = str_replace('href="#atelier"', 'href="/admin"', $page);
     $page = str_replace('<div id="themes-menu"></div>', '<div id="themes-menu">' . theme_links($themes) . '</div>', $page);
+    $page = site_links($page);
     if ($language !== 'fr') {
         $page = translate_static_sections($db, $page, $language);
     }

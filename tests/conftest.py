@@ -126,7 +126,7 @@ def server_url():
     tmp = Path(tempfile.mkdtemp(prefix='phptmp-'))
     port = free_port()
     env = {**os.environ, 'DATABASE_URL': DATABASE_URL, 'TRANSLATION_PROVIDER': 'fake', 'UPLOAD_DIR': str(uploads),
-           'DEPLOY_TOKEN': DEPLOY_TOKEN, 'APP_DEBUG': '1', 'TMPDIR': str(tmp), 'APP_ENV_FILE': os.devnull}
+           'DEPLOY_TOKEN': DEPLOY_TOKEN, 'APP_DEBUG': '1', 'DONATION_URL': 'https://exemple.org/don', 'TMPDIR': str(tmp), 'APP_ENV_FILE': os.devnull}
     log = open(tmp / 'server.log', 'w')
     process = subprocess.Popen(['php', '-d', 'upload_max_filesize=12M', '-d', 'post_max_size=13M', '-d', f'sys_temp_dir={tmp}',
                                 '-S', f'127.0.0.1:{port}', 'dev-router.php'], cwd=ROOT, env=env, stdout=log, stderr=subprocess.STDOUT)

@@ -307,3 +307,17 @@ header#accueil.is-condensed .logo{transform:scale(.84)}
 .notes-cta-button{width:auto;margin:0}
 @media(max-width:700px){.list-page{padding:36px 16px 56px}.list-filters{flex-direction:column;align-items:stretch}.list-filters label{flex-direction:column;align-items:stretch;gap:6px}.list-filters .list-search,.list-filters .list-search input{flex:none}.list-filters select,.list-filters input[type="search"]{width:100%;min-width:0}.list-reset{align-self:flex-start}.article-pager{grid-template-columns:1fr}.article-pager-link.is-next{grid-column:auto}.related-grid{grid-template-columns:1fr}.notes-cta-button{width:100%}}
 @media(prefers-reduced-motion:reduce){.news-track{scroll-behavior:auto}}
+
+/* === Navigation et en-tête : lien actif, bouton de don, retour en haut === */
+.to-top{border:0;cursor:pointer;visibility:hidden;transition:opacity .3s,transform .3s var(--ease),box-shadow .3s,visibility 0s .3s}
+.to-top.is-visible{visibility:visible;transition-delay:0s}
+.head summary.is-active{color:var(--mk-ribbon)}
+.head summary.is-active:before{transform:scaleX(1)}
+.head details>div a[aria-current="page"]{background:#f1f6f2;color:var(--mk-ribbon);font-weight:700}
+.donate-button{display:inline-flex;align-items:center;gap:7px;padding:10px 18px;border-radius:999px;background:var(--mk-orange);color:#2b1700;font:700 15px/1 var(--sans);white-space:nowrap;text-decoration:none;box-shadow:0 6px 16px #f2a54155;transition:transform .2s var(--ease),box-shadow .2s,background .2s}
+.donate-button:hover{background:#f6b65e;color:#2b1700;text-decoration:none;transform:translateY(-2px);box-shadow:0 10px 22px #f2a54177}
+.donate-button span[aria-hidden="true"]{color:#b3241b;font-size:16px}
+.head:has(.donate-button){grid-template-columns:260px 1fr auto 42px}
+@media(max-width:960px){.head:has(.donate-button){grid-template-columns:205px 1fr auto 38px}.donate-button{padding:9px 14px;font-size:13px}}
+@media(max-width:680px){.head:has(.donate-button){grid-template-columns:1fr auto 35px 36px}.head .logo{order:0}.head .donate-button{order:1}.head .menu-toggle{order:2}.head .search-button{order:3}}
+@media(max-width:420px){.donate-label{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}.donate-button{padding:9px 12px}}

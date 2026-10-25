@@ -288,6 +288,22 @@ def test_articles_similaires_et_navigation(admin, visitor):
     assert f'rel="next" href="/article/{article_slug(close)}"' in page and 'rel="prev"' in page
 
 
+
+# --- Lot 1 : navigation et en-tête ------------------------------------------------------------------------------------
+
+def test_en_tete_logo_don_et_lien_actif(visitor):
+    home = visitor.get('/').text
+    assert '<a class="logo" href="/"' in home  # le logo ramène en haut de l'accueil
+    assert 'class="donate-button" href="https://exemple.org/don" target="_blank" rel="noopener"' in home
+    notes = visitor.get('/analyses').text
+    assert '<a href="/analyses" class="is-active" aria-current="page">Les Notes</a>' in notes
+    assert 'class="donate-button"' in notes  # même en-tête sur toutes les pages publiques
+    theme = visitor.get('/thematique/jeunesse').text
+    assert '<summary class="is-active">Thématiques</summary>' in theme
+    assert 'href="/thematique/jeunesse" aria-current="page"' in theme
+    assert 'aria-current="page"' not in visitor.get('/actualites').text.split('</header>', 1)[0].split('<nav aria-label="Navigation principale">', 1)[1]
+
+
 def test_operations_de_deploiement(server_url):
     client = Client(server_url)
     assert client.post('/_ops/migrate', []).status == 403

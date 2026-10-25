@@ -50,7 +50,8 @@ function load_settings(): array
     $file = getenv('APP_ENV_FILE') ?: (app_base() !== null ? app_base() . '/shared/app.env' : app_root() . '/app.env');
     $settings = is_file($file) ? parse_env_file((string) file_get_contents($file)) : [];
     foreach (['DATABASE_URL', 'COOKIE_SECURE', 'DEEPL_API_KEY', 'LIBRETRANSLATE_URL', 'LIBRETRANSLATE_API_KEY',
-                 'TRANSLATION_PROVIDER', 'TRANSLATION_TIMEOUT', 'UPLOAD_DIR', 'DEPLOY_TOKEN', 'APP_DEBUG'] as $name) {
+                 'TRANSLATION_PROVIDER', 'TRANSLATION_TIMEOUT', 'UPLOAD_DIR', 'DEPLOY_TOKEN', 'APP_DEBUG',
+                 'DONATION_URL', 'MEMBERSHIP_URL', 'SITE_URL', 'BREVO_API_KEY', 'MAIL_FROM_EMAIL', 'MAIL_FROM_NAME', 'MAIL_DAILY_LIMIT'] as $name) {
         $value = getenv($name);
         if ($value !== false && $value !== '') {
             $settings[$name] = $value;
@@ -80,6 +81,25 @@ function app_version(): string
 {
     $file = app_root() . '/VERSION';
     return is_file($file) ? trim((string) file_get_contents($file)) : 'dev';
+}
+
+/** Liens externes du site, réglables dans app.env (le bouton de don reste masqué tant que DONATION_URL est vide). */
+const DEFAULT_MEMBERSHIP_URL = 'https://www.helloasso.com/associations/i-dialogos-international/adhesions/adhesions-i-dialogos-2026';
+
+function donation_url(): string
+{
+    return safe_external_url(setting('DONATION_URL'));
+}
+
+function membership_url(): string
+{
+    return safe_external_url(setting('MEMBERSHIP_URL', DEFAULT_MEMBERSHIP_URL));
+}
+
+/** N'accepte que des adresses http(s) complètes (une valeur mal saisie ne produit pas de lien cassé ou dangereux). */
+function safe_external_url(string $url): string
+{
+    return preg_match('#^https?://[^\s"<>]+$#iD', $url) ? $url : '';
 }
 
 const COOKIE_NAME = 'idialogos_session';
