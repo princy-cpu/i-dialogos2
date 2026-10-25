@@ -171,6 +171,18 @@ const MIGRATIONS = [
         'CREATE TABLE IF NOT EXISTS rate_events (scope TEXT NOT NULL, ip TEXT NOT NULL, at BIGINT NOT NULL)',
         'CREATE INDEX IF NOT EXISTS rate_events_lookup ON rate_events (scope, ip, at)',
     ]],
+    5 => ['Rôles des utilisateurs (administrateur, auteur, adhérent), désactivation des comptes, propriétaire des articles', [
+        // Les comptes existants deviennent administrateurs (valeur par défaut à l'ajout), les suivants adhérents.
+        // Pas d'UPDATE : ces instructions sont rejouées telles quelles lors d'une restauration (ops.php).
+        "ALTER TABLE users ADD COLUMN IF NOT EXISTS role TEXT NOT NULL DEFAULT 'admin' CHECK (role IN ('admin','author','member'))",
+        "ALTER TABLE users ALTER COLUMN role SET DEFAULT 'member'",
+        "ALTER TABLE users ADD COLUMN IF NOT EXISTS display_name TEXT NOT NULL DEFAULT ''",
+        "ALTER TABLE users ADD COLUMN IF NOT EXISTS email TEXT NOT NULL DEFAULT ''",
+        'ALTER TABLE users ADD COLUMN IF NOT EXISTS active INTEGER NOT NULL DEFAULT 1',
+        // Articles sans propriétaire (antérieurs aux rôles) : modifiables par les administrateurs seulement.
+        'ALTER TABLE articles ADD COLUMN IF NOT EXISTS owner_id BIGINT REFERENCES users(id) ON DELETE SET NULL',
+        'CREATE INDEX IF NOT EXISTS articles_owner ON articles (owner_id)',
+    ]],
 ];
 
 function latest_migration(): int

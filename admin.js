@@ -73,10 +73,6 @@ if (richEditor && articleEditorForm) {
   });
 }
 
-document.querySelector('#admin-filter')?.addEventListener('input', event => {
-  const query = event.target.value.trim().toLocaleLowerCase('fr');
-  document.querySelectorAll('#admin-articles tr').forEach(row => { row.hidden = !row.dataset.search.includes(query); });
-});
 document.querySelectorAll('form[onsubmit]').forEach(form => {
   form.addEventListener('submit', event => {
     if (!confirm('Confirmer cette suppression ?')) event.preventDefault();

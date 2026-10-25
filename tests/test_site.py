@@ -520,6 +520,113 @@ def test_commentaires_messages_antispam_et_moderation(admin, visitor):
     query('DELETE FROM rate_events')
 
 
+# --- Lot 6 : utilisateurs, rôles, listes de l'espace adhérent ---------------------------------------------------------
+
+def login(server_url: str, username: str, password: str) -> Client:
+    client = Client(server_url)
+    response = client.post('/admin/login', [('_csrf', client.csrf('/admin/login')), ('username', username), ('password', password)])
+    assert response.location == '/admin', response.location
+    return client
+
+
+def save_user(admin, fields: list[tuple[str, str]]):
+    return admin.post('/admin/users/save', [('_csrf', admin.csrf('/admin/users/new')), *fields])
+
+
+def user_id(username: str) -> int:
+    return query('SELECT id FROM users WHERE username=%s', (username,))[0]['id']
+
+
+def test_gestion_des_utilisateurs_et_des_roles(admin, server_url):
+    assert query('SELECT role FROM users WHERE username=%s', (ADMIN[0],))[0]['role'] == 'admin'  # compte existant : administrateur
+    created = save_user(admin, [('username', 'autrice'), ('display_name', 'Awa Autrice'), ('email', 'awa@exemple.org'),
+                                ('role', 'author'), ('password', 'autrice-mot-de-passe')])
+    assert created.status == 200 and 'a été créé (Auteur)' in created.text
+    assert save_user(admin, [('username', 'adherent'), ('role', 'member'), ('password', 'adherent-mot-de-passe')]).status == 200
+    assert 'déjà utilisé' in save_user(admin, [('username', 'AUTRICE'), ('role', 'member'), ('password', 'x' * 14)]).text
+    assert 'au moins 12 caractères' in save_user(admin, [('username', 'court'), ('role', 'member'), ('password', 'court')]).text
+    assert not query("SELECT 1 FROM users WHERE username='court'")
+    listing = admin.get('/admin/users?q=awa').text
+    assert 'Awa Autrice' in listing and 'adherent' not in listing
+    assert 'Awa Autrice' not in admin.get('/admin/users?role=member').text
+
+    # Auteur : publie directement, ne voit et ne modifie que ses propres articles.
+    author = login(server_url, 'autrice', 'autrice-mot-de-passe')
+    for path in ('/admin/users', '/admin/categories', '/admin/newsletter', '/admin/comments', '/admin/experts'):
+        assert author.get(path).status == 403, path
+    admin_article = create_article(admin, 'Article de l’administrateur')
+    own = create_article(author, 'Article de l’autrice')
+    assert query('SELECT owner_id, status FROM articles WHERE id=%s', (own,))[0] == {'owner_id': user_id('autrice'), 'status': 'published'}
+    board = author.get('/admin').text
+    assert 'Mes articles' in board and 'Article de l’autrice' in board and 'Article de l’administrateur' not in board
+    assert 'href="/admin/users"' not in board and 'href="/admin/categories"' not in board  # menu limité au rôle
+    assert author.get(f'/admin/articles/{admin_article}/edit').status == 403
+    assert author.post(f'/admin/articles/{admin_article}/delete', [('_csrf', author.csrf('/admin'))]).status == 403
+    assert query('SELECT 1 FROM articles WHERE id=%s', (admin_article,))
+    assert author.get(f'/admin/articles/{own}/edit').status == 200
+    assert admin.get(f'/admin/articles/{own}/edit').status == 200  # l'administrateur garde tous les droits
+    assert author.post('/admin/users/save', [('_csrf', author.csrf('/admin')), ('username', 'intrus'), ('role', 'admin'),
+                                             ('password', 'x' * 14)]).status == 403
+    assert not query("SELECT 1 FROM users WHERE username='intrus'")
+
+    # Adhérent : tableau de bord, profil et messagerie seulement.
+    member = login(server_url, 'adherent', 'adherent-mot-de-passe')
+    home = member.get('/admin').text
+    assert 'Espace adhérent' in home and 'href="/admin/messages"' in home and 'href="/admin/articles"' not in home
+    for path in ('/admin/articles', '/admin/articles/new', '/admin/users', '/admin/events'):
+        assert member.get(path).status == 403, path
+    messages = member.get('/admin/messages')
+    assert messages.status == 200 and 'Bientôt disponible' in messages.text
+    profile_token = member.csrf('/admin/profile')
+    wrong = member.post('/admin/profile', [('_csrf', profile_token), ('display_name', 'Ada Adhérente'), ('email', ''),
+                                           ('current_password', 'faux'), ('new_password', 'nouveau-mot-de-passe'), ('confirm_password', 'nouveau-mot-de-passe')])
+    assert 'Le mot de passe actuel est incorrect.' in wrong.text
+    changed = member.post('/admin/profile', [('_csrf', profile_token), ('display_name', 'Ada Adhérente'), ('email', 'ada@exemple.org'),
+                                             ('current_password', 'adherent-mot-de-passe'), ('new_password', 'nouveau-mot-de-passe'),
+                                             ('confirm_password', 'nouveau-mot-de-passe')])
+    assert 'Profil et mot de passe mis à jour.' in changed.text and 'Ada Adhérente' in changed.text
+
+    # Désactivation : la session ouverte est coupée et la connexion refusée, jusqu'à la réactivation.
+    member_id = user_id('adherent')
+    disabled = admin.post(f'/admin/users/{member_id}/toggle', [('_csrf', admin.csrf('/admin/users'))])
+    assert 'a été désactivé' in disabled.text
+    assert member.get('/admin').location == '/admin/login'
+    retry = Client(server_url)
+    refused = retry.post('/admin/login', [('_csrf', retry.csrf('/admin/login')), ('username', 'adherent'), ('password', 'nouveau-mot-de-passe')])
+    assert refused.location.endswith('error=disabled') and 'désactivé' in retry.get(refused.location).text
+    admin.post(f'/admin/users/{member_id}/toggle', [('_csrf', admin.csrf('/admin/users'))])
+    login(server_url, 'adherent', 'nouveau-mot-de-passe')
+
+    # L'administrateur ne peut ni se désactiver ni se retirer son rôle.
+    me = user_id(ADMIN[0])
+    assert 'propre compte' in admin.post(f'/admin/users/{me}/toggle', [('_csrf', admin.csrf('/admin/users'))]).text
+    save_user(admin, [('id', str(me)), ('username', ADMIN[0]), ('role', 'member'), ('password', '')])
+    assert query('SELECT role, active FROM users WHERE id=%s', (me,))[0] == {'role': 'admin', 'active': 1}
+    edited = save_user(admin, [('id', str(user_id('autrice'))), ('username', 'autrice'), ('display_name', 'Awa A.'), ('role', 'member'), ('password', '')])
+    assert 'mis à jour' in edited.text and query("SELECT role FROM users WHERE username='autrice'")[0]['role'] == 'member'
+    assert author.get('/admin/articles').status == 403  # nouveau rôle appliqué immédiatement
+
+
+def test_recherche_et_pagination_des_listes(admin):
+    for number in range(23):
+        query('INSERT INTO tags (name, slug, created_at) VALUES (%s, %s, %s) ON CONFLICT DO NOTHING', (f'Thème {number:02d}', f'theme-{number:02d}', ''))
+    first = admin.get('/admin/tags?q=Th%C3%A8me').text
+    assert first.count('Thème ') == 20 and 'rel="next"' in first and 'page=2' in first
+    second = admin.get('/admin/tags?q=Th%C3%A8me&page=2').text
+    assert second.count('Thème ') == 3 and 'Thème 22' in second
+    assert 'Thème 07' in admin.get('/admin/tags?q=07').text and 'Thème 08' not in admin.get('/admin/tags?q=07').text
+    create_article(admin, 'Recherche alpha introuvable ailleurs', status='draft')
+    found = admin.get('/admin/articles?q=alpha+introuvable').text
+    assert 'Recherche alpha introuvable ailleurs' in found and 'Article de l’autrice' not in found
+    assert 'Recherche alpha' not in admin.get('/admin/articles?q=alpha+introuvable&etat=published').text
+    assert 'Aucun commentaire ne correspond' in admin.get('/admin/comments?q=zzzz-introuvable').text
+    assert 'Aucun contenu ne correspond' in admin.get('/admin/events?q=zzzz-introuvable').text
+    assert 'Aucune fiche ne correspond' in admin.get('/admin/invites?q=zzzz-introuvable').text
+    assert admin.get('/admin/newsletter?q=zzzz').status == 200
+    query("DELETE FROM tags WHERE slug LIKE 'theme-%%'")
+
+
+
 def test_operations_de_deploiement(server_url):
     client = Client(server_url)
     assert client.post('/_ops/migrate', []).status == 403

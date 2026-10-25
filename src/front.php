@@ -15,6 +15,7 @@ require __DIR__ . '/listings.php';
 require __DIR__ . '/people.php';
 require __DIR__ . '/newsletter.php';
 require __DIR__ . '/admin_pages.php';
+require __DIR__ . '/users.php';
 require __DIR__ . '/ops.php';
 
 mb_internal_encoding('UTF-8');
@@ -179,10 +180,16 @@ function route_get(string $path): void
             return;
         }
         $segments = explode('/', trim($path, '/'));
+        if (!admin_section_allowed($segments[1] ?? '', user_role())) {
+            admin_forbidden();
+            return;
+        }
         $admin = ['/admin/articles' => fn() => dashboard('articles'), '/admin/events' => 'events_page', '/admin/events/new' => fn() => event_form(),
             '/admin/articles/new' => fn() => article_form(), '/admin/categories' => fn() => taxonomy_page('categories'),
             '/admin/tags' => fn() => taxonomy_page('tags'), '/admin/templates' => 'templates_page', '/admin/comments' => 'comments_page',
-            '/admin/languages' => 'languages_page', '/admin/newsletter' => fn() => newsletter_admin_page()];
+            '/admin/languages' => 'languages_page', '/admin/newsletter' => fn() => newsletter_admin_page(),
+            '/admin/users' => fn() => users_page(), '/admin/users/new' => fn() => user_form(), '/admin/profile' => fn() => profile_page(),
+            '/admin/messages' => 'messages_page'];
         if (isset($admin[$path])) {
             $admin[$path]();
             return;
@@ -206,6 +213,10 @@ function route_get(string $path): void
         }
         if (count($segments) === 4 && $segments[3] === 'edit' && $segments[1] === 'articles') {
             article_form($segments[2]);
+            return;
+        }
+        if (count($segments) === 4 && $segments[3] === 'edit' && $segments[1] === 'users') {
+            user_form($segments[2]);
             return;
         }
         send_body(site_page('Page introuvable', '<main class="admin-shell"><h1>Page introuvable</h1><a href="/admin">Retour à l’administration</a></main>'), 404);
@@ -259,10 +270,15 @@ function route_post(string $path): void
         return;
     }
     $segments = explode('/', trim($path, '/'));
+    if (!admin_section_allowed($segments[1] ?? '', user_role())) {
+        admin_forbidden();
+        return;
+    }
     $routes = ['/admin/logout' => 'logout', '/admin/articles/save' => 'save_article', '/admin/events/save' => 'save_event',
         '/admin/categories' => fn() => taxonomy_post('categories', false), '/admin/categories/delete' => fn() => taxonomy_post('categories', true),
         '/admin/tags' => fn() => taxonomy_post('tags', false), '/admin/tags/delete' => fn() => taxonomy_post('tags', true),
-        '/admin/templates' => 'templates_post', '/admin/languages' => 'languages_post', '/admin/newsletter/process' => 'newsletter_admin_process'];
+        '/admin/templates' => 'templates_post', '/admin/languages' => 'languages_post', '/admin/newsletter/process' => 'newsletter_admin_process',
+        '/admin/users/save' => 'save_user', '/admin/profile' => 'save_profile'];
     if (isset($routes[$path])) {
         $routes[$path]();
     } elseif (count($segments) === 4 && $segments[1] === 'events' && $segments[3] === 'delete') {
@@ -275,6 +291,8 @@ function route_post(string $path): void
         save_person(people_kind_from_path($segments[1]));
     } elseif (count($segments) === 4 && $segments[3] === 'delete' && people_kind_from_path($segments[1]) !== null) {
         delete_person(people_kind_from_path($segments[1]), $segments[2]);
+    } elseif (count($segments) === 4 && $segments[1] === 'users' && $segments[3] === 'toggle') {
+        toggle_user($segments[2]);
     } elseif (count($segments) === 3 && $segments[1] === 'comments') {
         comment_action($segments[2]);
     } else {

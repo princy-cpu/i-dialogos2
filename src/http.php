@@ -181,7 +181,7 @@ function current_session(bool $create = false): ?array
     }
     $token = request()->cookie(COOKIE_NAME);
     if ($token !== '') {
-        $row = db()->one('SELECT sessions.*, users.username FROM sessions LEFT JOIN users ON users.id=sessions.user_id WHERE token_hash=? AND expires_at>?',
+        $row = db()->one('SELECT sessions.*, users.username, users.role, users.active, users.display_name, users.email FROM sessions LEFT JOIN users ON users.id=sessions.user_id WHERE token_hash=? AND expires_at>?',
             [hash('sha256', $token), time()]);
         if ($row) {
             return App::$sessionCache = $row;
@@ -200,7 +200,8 @@ function current_session(bool $create = false): ?array
 function auth(): ?array
 {
     $session = current_session();
-    return ($session && $session['user_id'] && $session['username']) ? $session : null;
+    // Un compte désactivé n'ouvre plus aucune page, même avec une session encore valide.
+    return ($session && $session['user_id'] && $session['username'] && (int) $session['active'] === 1) ? $session : null;
 }
 
 function csrf_ok(): bool

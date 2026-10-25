@@ -147,14 +147,21 @@ function people_kind_from_path(string $segment): ?string
 function people_admin_page(string $kind): void
 {
     $labels = PEOPLE_KINDS[$kind];
+    $db = db();
+    $search = filter_value('q');
+    $condition = 'kind=?' . ($search !== '' ? ' AND (name ILIKE ? OR expertise ILIKE ? OR region ILIKE ?)' : '');
+    $params = $search !== '' ? [$kind, like_contains($search), like_contains($search), like_contains($search)] : [$kind];
+    $total = (int) $db->value("SELECT COUNT(*) FROM people WHERE $condition", $params);
+    $page = admin_list_page();
+    $order = $kind === 'guest' ? 'featured_on DESC, id DESC' : 'position, name, id';
     $rows = '';
-    foreach (people(db(), $kind) as $person) {
+    foreach ($db->all("SELECT * FROM people WHERE $condition ORDER BY $order LIMIT ? OFFSET ?", [...$params, ADMIN_PAGE_SIZE, ($page - 1) * ADMIN_PAGE_SIZE]) as $person) {
         $detail = $kind === 'guest' ? ($person['featured_on'] !== '' ? esc(long_date($person['featured_on'], 'fr')) : 'Sans date') : 'Ordre ' . (int) $person['position'];
         $rows .= '<tr><td class="admin-person"><span class="admin-person-photo">' . person_photo($person) . '</span><span><strong>' . esc($person['name']) . '</strong><small>' . esc($person['expertise'] ?: '—') . '</small></span></td><td>' . esc($person['region'] ?: '—') . '</td><td>' . $detail . '</td><td class="table-actions"><a href="/admin/' . $labels['path'] . '/' . $person['id'] . '/edit">Modifier</a><form method="post" action="/admin/' . $labels['path'] . '/' . $person['id'] . '/delete" onsubmit="return confirm(\'Supprimer cette fiche ?\')">' . csrf_field() . '<button>Supprimer</button></form></td></tr>';
     }
-    $rows = $rows ?: '<tr><td colspan="4">Aucune fiche pour le moment.' . ($kind === 'expert' ? ' Tant qu’aucun expert n’est enregistré, l’accueil présente les experts actuels du site.' : ' Tant qu’aucun invité n’est enregistré, l’accueil présente l’invitée actuelle du site.') . '</td></tr>';
+    $rows = $rows ?: '<tr><td colspan="4">' . ($search !== '' ? 'Aucune fiche ne correspond à cette recherche.</td></tr>' : 'Aucune fiche pour le moment.' . ($kind === 'expert' ? ' Tant qu’aucun expert n’est enregistré, l’accueil présente les experts actuels du site.' : ' Tant qu’aucun invité n’est enregistré, l’accueil présente l’invitée actuelle du site.') . '</td></tr>');
     $dateHead = $kind === 'guest' ? 'Semaine' : 'Affichage';
-    $content = '<main class="admin-main"><div class="admin-title-row"><div><span class="eyebrow">Réseau</span><h1>' . esc($labels['plural']) . '</h1><p>Fiches présentées sur l’accueil et sur la page <a href="/invites-et-experts" target="_blank">Invités et experts</a>.</p></div><a class="primary-button" href="/admin/' . $labels['path'] . '/new">+ ' . esc($labels['new']) . '</a></div><section class="admin-panel"><div class="admin-table-wrap"><table><thead><tr><th>Nom</th><th>Pays ou région</th><th>' . $dateHead . '</th><th>Actions</th></tr></thead><tbody>' . $rows . '</tbody></table></div></section></main>';
+    $content = '<main class="admin-main"><div class="admin-title-row"><div><span class="eyebrow">Réseau</span><h1>' . esc($labels['plural']) . '</h1><p>Fiches présentées sur l’accueil et sur la page <a href="/invites-et-experts" target="_blank">Invités et experts</a>.</p></div><a class="primary-button" href="/admin/' . $labels['path'] . '/new">+ ' . esc($labels['new']) . '</a></div><section class="admin-panel">' . admin_search_form('/admin/' . $labels['path'], $search, 'Nom, expertise ou pays') . '<div class="admin-table-wrap"><table><thead><tr><th>Nom</th><th>Pays ou région</th><th>' . $dateHead . '</th><th>Actions</th></tr></thead><tbody>' . $rows . '</tbody></table></div>' . admin_pagination('/admin/' . $labels['path'], ['q' => $search], $page, $total) . '</section></main>';
     send_body(admin_page($labels['plural'], $content, $labels['path']));
 }
 

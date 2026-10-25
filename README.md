@@ -63,6 +63,10 @@ Le script peut être relancé sans créer de doublons : un article déjà import
 - Modèles d’article personnalisables et choix d’un modèle par défaut.
 - Commentaires activables par article, avec modération avant affichage.
 - Authentification administrateur, mots de passe hachés avec PBKDF2, sessions HttpOnly et protection CSRF.
+- Espace adhérent (`/admin`) avec trois rôles : **Administrateur** (tous les droits, seul à gérer les utilisateurs), **Auteur** (publie directement, ne modifie que ses propres articles), **Adhérent** (tableau de bord, profil, messagerie « Bientôt disponible »). Les comptes se créent, se modifient et se désactivent dans « Utilisateurs » ; un compte désactivé est déconnecté immédiatement. Chaque liste a une recherche et une pagination (20 lignes par page).
+- Invités de la semaine et experts gérés dans l’administration (page publique `/invites-et-experts`).
+- Newsletter à double confirmation (Brevo), lien de désinscription dans chaque e-mail, annonce automatique de chaque article publié (une seule fois, par une file d’envoi).
+- Commentaires protégés contre les robots (champ piège, 3 envois par adresse IP en 10 minutes) et publiés après validation.
 
 ## Page d’accueil et maquettes
 
@@ -95,6 +99,20 @@ TRANSLATION_PROVIDER=none                  # ou désactiver la traduction
 ```
 
 Si le service ne répond pas, le texte d’origine s’affiche avec un message, et un nouvel essai a lieu une minute plus tard. Les traductions déjà faites par l’ancienne version Python sont réutilisées telles quelles.
+
+## Réglages (`app.env` ou variables d’environnement)
+
+```ini
+SITE_URL=https://www.i-dialogos.org          # adresse publique, utilisée dans les liens des e-mails
+DONATION_URL=https://…                       # lien « Faire un don » (bouton masqué tant qu’il est vide)
+MEMBERSHIP_URL=https://…                     # facultatif : lien « Devenir adhérent » (HelloAsso 2026 par défaut)
+BREVO_API_KEY=xkeysib-…                      # clé API Brevo (Paramètres > Clés API)
+MAIL_FROM_EMAIL=newsletter@i-dialogos.org    # expéditeur validé dans Brevo (Expéditeurs et domaines)
+MAIL_FROM_NAME=I-Dialogos                    # facultatif
+MAIL_DAILY_LIMIT=300                         # facultatif : plafond quotidien (offre gratuite Brevo : 300)
+```
+
+La file d’envoi de la newsletter est traitée juste après chaque publication, et peut l’être à intervalles réguliers par une tâche planifiée (cron, toutes les 15 minutes) : `curl -fsS -X POST -H "X-Deploy-Token: $DEPLOY_TOKEN" https://www.i-dialogos.org/_ops/mail-queue`. Le bouton « Envoyer la file maintenant » de l’administration (Newsletter) fait de même.
 
 ## Tests
 
