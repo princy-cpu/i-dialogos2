@@ -1,5 +1,5 @@
 name: Déploiement LWS
-description: Prépare la connexion SSH puis lance deploy/deploy.sh (déploiement ou retour arrière).
+description: Prépare la connexion SSH (et, chez o2switch, autorise l'adresse IP de GitHub le temps du job), puis lance deploy/deploy.sh.
 
 inputs:
   action:
@@ -33,6 +33,9 @@ inputs:
     default: ''
   allow-no-backup:
     default: 'false'
+  cpanel-api-token:
+    description: jeton d'API cPanel (o2switch) pour autoriser l'adresse IP de GitHub dans le pare-feu SSH ; vide ailleurs
+    default: ''
 
 runs:
   using: composite
@@ -58,6 +61,28 @@ runs:
         fi
         printf '%s\n' "$KNOWN_HOSTS" > ~/.ssh/known_hosts
         chmod 644 ~/.ssh/known_hosts
+    - name: Autorisation SSH temporaire (o2switch)
+      if: inputs.cpanel-api-token != ''
+      shell: bash
+      env:
+        API: https://${{ inputs.ssh-host }}:2083/execute/SshWhitelist
+        AUTH: cpanel ${{ inputs.ssh-user }}:${{ inputs.cpanel-api-token }}
+      run: |
+        ip="$(curl -fsS --max-time 20 https://api.ipify.org)"
+        echo "RUNNER_IP=$ip" >> "$GITHUB_ENV"
+        echo "Autorisation de l'adresse $ip sur le port 22 (jusqu'à 35 secondes)"
+        answer="$(curl -sS --max-time 90 -H "Authorization: $AUTH" "$API/add?address=$ip&port=22" || true)"
+        if ! grep -Eq '"status" *: *1([^0-9]|$)' <<< "$answer"; then
+          echo "::error::Autorisation SSH refusée par o2switch : $answer"
+          echo "Vérifier le secret CPANEL_API_TOKEN, et qu'il reste une place libre (5 au maximum) dans l'outil « Autorisation SSH » de cPanel."
+          exit 1
+        fi
+        for _ in 1 2 3 4 5 6; do
+          [[ "$(curl -sS --max-time 20 -H "Authorization: $AUTH" "$API/list" || true)" == *"\"$ip\""* ]] && exit 0
+          sleep 10
+        done
+        echo "::error::L'adresse $ip n'apparaît pas dans la liste des autorisations SSH."
+        exit 1
     - name: ${{ inputs.action == 'rollback' && 'Retour arrière' || 'Déploiement' }}
       shell: bash
       env:
@@ -78,3 +103,16 @@ runs:
       if: always()
       shell: bash
       run: rm -f ~/.ssh/id_deploy
+    - name: Retrait de l'autorisation SSH (o2switch)
+      if: always() && inputs.cpanel-api-token != ''
+      shell: bash
+      env:
+        API: https://${{ inputs.ssh-host }}:2083/execute/SshWhitelist
+        AUTH: cpanel ${{ inputs.ssh-user }}:${{ inputs.cpanel-api-token }}
+      run: |
+        [ -n "${RUNNER_IP:-}" ] || exit 0
+        for direction in in out; do
+          curl -sS --max-time 30 -o /dev/null -H "Authorization: $AUTH" \
+            "$API/remove?address=$RUNNER_IP&port=22&direction=$direction" || true
+        done
+        echo "Autorisation de $RUNNER_IP retirée."

@@ -1,6 +1,6 @@
 # I-Dialogos — publications
 
-Application web pour rédiger et publier des articles, écrite en **PHP** (dossier `src/`) avec une base **PostgreSQL**. Elle tourne sur l'hébergement mutualisé LWS (offre Starter).
+Application web pour rédiger et publier des articles, écrite en **PHP** (dossier `src/`) avec une base **PostgreSQL**. Elle tourne sur un hébergement mutualisé PHP (LWS Starter ou o2switch offre unique).
 
 ## Démarrer (sur votre poste)
 
@@ -110,6 +110,7 @@ Les tests lancent eux-mêmes un serveur PHP (`php -S`) et parcourent le site com
 
 ## Mise en production et déploiement continu
 
+- [DEPLOIEMENT_O2SWITCH.md](DEPLOIEMENT_O2SWITCH.md) : transfert et installation chez o2switch (offre unique), jusqu'au domaine et au HTTPS.
 - [DEPLOIEMENT_LWS.md](DEPLOIEMENT_LWS.md) : installation sur l'hébergement LWS Starter (base PostgreSQL, réglages, domaine et HTTPS).
 - [CICD.md](CICD.md) : tests et déploiement automatiques avec GitHub Actions (production à chaque version publiée, sauvegarde de la base avant chaque mise en ligne, retour arrière automatique).
 

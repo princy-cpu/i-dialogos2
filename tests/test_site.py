@@ -1,11 +1,15 @@
 """Parcours complets du site, par de vraies requêtes HTTP vers l'application PHP."""
 from __future__ import annotations
 
+import gzip
 import json
+import os
 import re
 import time
 
-from conftest import ADMIN, DEPLOY_TOKEN, Client, query
+import psycopg
+import pytest
+from conftest import ADMIN, DATABASE_URL, DEPLOY_TOKEN, ROOT, Client, query, reset_database
 
 PNG = b'\x89PNG\r\n\x1a\n' + b'0' * 64
 
@@ -198,6 +202,30 @@ def test_operations_de_deploiement(server_url):
     assert migrated.status == 200 and json.loads(migrated.text)['applied'] == []
     backup = client.post('/_ops/backup?label=test', [], headers={'X-Deploy-Token': DEPLOY_TOKEN})
     assert backup.status == 200 and json.loads(backup.text)['file'].endswith('-test.sql.gz')
+
+
+def test_sauvegarde_restaurable_dans_une_base_vide(server_url):
+    """Transfert vers un autre hébergeur : la sauvegarde, rejouée dans une base vide, redonne le même site."""
+    if os.environ.get('APP_URL'):
+        pytest.skip('le fichier de sauvegarde est sur le serveur testé')
+    client = Client(server_url)
+    backup = client.post('/_ops/backup?label=transfert', [], headers={'X-Deploy-Token': DEPLOY_TOKEN})
+    assert backup.status == 200
+    sql = gzip.decompress((ROOT / 'backups' / json.loads(backup.text)['file']).read_bytes()).decode('utf-8')
+    counted = ['users', 'articles', 'categories', 'tags', 'article_categories', 'translations', 'news_events', 'comments']
+    before = {table: query(f'SELECT COUNT(*) AS n FROM {table}')[0]['n'] for table in counted}
+    titles = query('SELECT title FROM articles ORDER BY id')
+    reset_database()
+    with psycopg.connect(DATABASE_URL, autocommit=True) as connection:
+        connection.execute(sql)
+    assert {table: query(f'SELECT COUNT(*) AS n FROM {table}')[0]['n'] for table in counted} == before
+    assert query('SELECT title FROM articles ORDER BY id') == titles
+    assert '"status": "ok"' in client.get('/healthz').text
+    migrated = client.post('/_ops/migrate', [], headers={'X-Deploy-Token': DEPLOY_TOKEN})
+    assert migrated.status == 200 and json.loads(migrated.text)['applied'] == []
+    # Les compteurs repartent après les identifiants restaurés.
+    created = query("INSERT INTO categories (name, slug, created_at) VALUES ('Après transfert', 'apres-transfert', '') RETURNING id")
+    assert created[0]['id'] > max(row['id'] for row in query("SELECT id FROM categories WHERE slug <> 'apres-transfert'"))
 
 
 def test_limitation_des_tentatives_de_connexion(server_url):
