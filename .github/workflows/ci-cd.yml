@@ -1,0 +1,144 @@
+# Intégration continue (contrôles + tests) à chaque push et pull request, puis déploiement sur LWS (offre Starter, PHP) :
+#   - publication d'une version vX.Y.Z (tag ou Release GitHub)      -> production
+#   - merge sur main, si une préproduction est configurée          -> préproduction
+#   - lancement manuel (onglet Actions > CI/CD > Run workflow)      -> l'environnement choisi
+name: CI/CD
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      target:
+        description: Environnement à déployer
+        type: choice
+        options: [production, preprod]
+        default: production
+      allow_no_backup:
+        description: Première mise en place uniquement (aucune version PHP encore en ligne, donc pas de sauvegarde possible)
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+# Un seul déploiement à la fois ; un nouveau push n'interrompt jamais un déploiement en cours.
+concurrency:
+  group: ${{ github.event_name == 'pull_request' && format('pr-{0}', github.ref) || 'deploiement' }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  lint:
+    name: Analyse statique
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+          coverage: none
+      - name: Syntaxe PHP
+        run: for file in src/*.php public/index.php dev-router.php; do php -l "$file"; done
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - run: pip install ruff==0.16.9
+      - name: Ruff (tests et outils Python)
+        run: ruff check --output-format=github .
+      - name: ShellCheck (scripts de déploiement)
+        run: shellcheck -S warning -e SC2011 deploy/*.sh
+
+  test:
+    name: Tests (PHP ${{ matrix.php }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # 8.0 : version la plus ancienne acceptée ; 8.3 : version récente (celle à choisir chez LWS).
+        php: ['8.0', '8.3']
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_DB: idialogos_test
+          POSTGRES_USER: test
+          POSTGRES_PASSWORD: 'Mot%de@passe'
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd="pg_isready -U test" --health-interval=5s --health-timeout=5s --health-retries=20
+    env:
+      # Le mot de passe contient % et @ : on vérifie au passage leur encodage dans l'adresse.
+      DATABASE_URL: postgresql://test:Mot%25de%40passe@127.0.0.1:5432/idialogos_test
+    steps:
+      - uses: actions/checkout@v5
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: ${{ matrix.php }}
+          extensions: pdo_pgsql, mbstring, curl, zlib
+          coverage: none
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: requirements-dev.txt
+      - run: pip install -r requirements-dev.txt
+      - name: Tests de bout en bout (serveur PHP réel)
+        run: python -m pytest -q tests
+
+  deploy-preprod:
+    name: Déploiement préproduction
+    needs: [lint, test]
+    if: >-
+      vars.PREPROD_DEPLOY_PATH != '' && (
+      (github.event_name == 'push' && github.ref == 'refs/heads/main') ||
+      (github.event_name == 'workflow_dispatch' && inputs.target == 'preprod'))
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: ./.github/actions/deploy
+        with:
+          ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }}
+          ssh-password: ${{ secrets.SSH_PASSWORD }}
+          ssh-known-hosts: ${{ secrets.SSH_KNOWN_HOSTS }}
+          deploy-token: ${{ secrets.PREPROD_DEPLOY_TOKEN || secrets.DEPLOY_TOKEN }}
+          ssh-host: ${{ vars.SSH_HOST }}
+          ssh-user: ${{ vars.SSH_USER }}
+          ssh-port: ${{ vars.SSH_PORT }}
+          deploy-path: ${{ vars.PREPROD_DEPLOY_PATH }}
+          site-url: ${{ vars.PREPROD_SITE_URL }}
+          site-ip: ${{ vars.PREPROD_SITE_IP }}
+          allow-no-backup: ${{ inputs.allow_no_backup || false }}
+
+  deploy-production:
+    name: Déploiement production
+    needs: [lint, test]
+    if: >-
+      (github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')) ||
+      (github.event_name == 'workflow_dispatch' && inputs.target == 'production')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      - name: La version doit faire partie de main
+        run: |
+          git fetch --quiet origin main
+          git merge-base --is-ancestor HEAD origin/main || {
+            echo "::error::Ce commit n'est pas sur main : merger d'abord la pull request, puis publier la version."
+            exit 1
+          }
+      - uses: ./.github/actions/deploy
+        with:
+          ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }}
+          ssh-password: ${{ secrets.SSH_PASSWORD }}
+          ssh-known-hosts: ${{ secrets.SSH_KNOWN_HOSTS }}
+          deploy-token: ${{ secrets.DEPLOY_TOKEN }}
+          ssh-host: ${{ vars.SSH_HOST }}
+          ssh-user: ${{ vars.SSH_USER }}
+          ssh-port: ${{ vars.SSH_PORT }}
+          deploy-path: ${{ vars.PROD_DEPLOY_PATH }}
+          site-url: ${{ vars.PROD_SITE_URL }}
+          site-ip: ${{ vars.PROD_SITE_IP }}
+          allow-no-backup: ${{ inputs.allow_no_backup || false }}

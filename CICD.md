@@ -26,7 +26,7 @@ Une préproduction est possible plus tard (variables `PREPROD_*`) : elle se met 
    version précédente** et le déploiement est marqué en échec.
 
 Les images (`htdocs/uploads/`) et les réglages (`htdocs/.app/shared/app.env`) ne sont jamais touchés.
-Sur le serveur, les scripts n'utilisent que `tar`, `mkdir`, `cp`, `mv` et `rm` (l'offre Starter n'en fournit guère plus).
+Sur le serveur, les scripts n'utilisent que `tar`, `mkdir`, `cp`, `mv` et `rm`, plus PHP s'il est trouvé pour vérifier la syntaxe avant la mise en ligne.
 
 ## Organisation sur le serveur
 
@@ -51,37 +51,19 @@ htdocs/
 
 Prérequis : étapes 1 à 4 de [DEPLOIEMENT_LWS.md](DEPLOIEMENT_LWS.md) (version de PHP, base, `app.env`, images).
 
-### 1. Clé de déploiement
+### 1. Accès SSH pour GitHub
 
-Sur ton PC (PowerShell), une clé réservée à GitHub, sans phrase de passe :
+L'offre Starter ne permet pas de déposer une clé SSH (le dossier personnel n'est pas modifiable) : GitHub se connecte
+donc avec le **mot de passe SSH** du compte, conservé dans un secret chiffré (étape 2). Si un jour une clé est possible,
+il suffira de renseigner le secret `SSH_PRIVATE_KEY` à la place.
 
-```powershell
-ssh-keygen -t ed25519 -C "github-deploy-idialogos" -f "$HOME\.ssh\idialogos_deploy" -N '""'
-Get-Content "$HOME\.ssh\idialogos_deploy.pub"
-```
-
-Autoriser cette clé sur le serveur : connecté en SSH (avec le mot de passe), coller la ligne affichée à la place de `CLE` :
-
-```bash
-mkdir -p ~/.ssh
-printf '%s\n' 'CLE' >> ~/.ssh/authorized_keys
-```
-
-Vérifier depuis PowerShell que la connexion fonctionne **sans mot de passe** :
-
-```powershell
-ssh -i "$HOME\.ssh\idialogos_deploy" i-dia2811273@185.98.131.155 echo ok
-```
-
-Si le mot de passe est encore demandé, l'espace client LWS a peut-être une rubrique « Clés SSH » où déposer la clé publique.
-
-Empreinte du serveur, pour que GitHub refuse un serveur qui se ferait passer pour LWS :
+Relever l'empreinte du serveur, pour que GitHub refuse un serveur qui se ferait passer pour LWS (PowerShell) :
 
 ```powershell
 ssh-keyscan 185.98.131.155
 ```
 
-Garder toute la sortie.
+Garder toutes les lignes affichées.
 
 ### 2. Configurer GitHub (dépôt `princy-cpu/i-dialogos2`)
 
@@ -89,7 +71,7 @@ Garder toute la sortie.
 
 | Secret | Contenu |
 |---|---|
-| `SSH_PRIVATE_KEY` | tout le fichier `idialogos_deploy` (clé **privée**, de `-----BEGIN` à `END-----`) |
+| `SSH_PASSWORD` | le mot de passe SSH du compte `i-dia2811273` (celui du compte FTP) |
 | `SSH_KNOWN_HOSTS` | la sortie de `ssh-keyscan` |
 | `DEPLOY_TOKEN` | le jeton écrit dans `app.env` (DEPLOIEMENT_LWS.md, étape 3) |
 
@@ -164,7 +146,7 @@ ruff check .
 
 | Message dans le journal GitHub | Cause probable |
 |---|---|
-| `Permission denied (publickey)` | clé publique non autorisée sur le serveur, ou `SSH_USER` incorrect |
+| `Envoi impossible : connexion SSH refusée` | mot de passe (`SSH_PASSWORD`) ou identifiant (`SSH_USER`) incorrect, ou `SSH_KNOWN_HOSTS` à refaire |
 | `Host key verification failed` | `SSH_KNOWN_HOSTS` manquant ou différent : refaire `ssh-keyscan` |
 | `Connection timed out` | accès SSH désactivé ou filtré par adresse IP chez LWS |
 | `fichier …/app.env absent` | DEPLOIEMENT_LWS.md, étape 3 |
@@ -172,9 +154,9 @@ ruff check .
 | `Sauvegarde impossible (HTTP 403)` | le secret `DEPLOY_TOKEN` de GitHub diffère de celui d'`app.env` |
 | `Contrôle de santé en échec` | ouvrir `/healthz` : il indique l'erreur (base injoignable, extension PHP manquante…). Le site est déjà revenu à la version précédente. |
 
-Déploiement manuel de dépannage depuis Git Bash (mêmes valeurs que dans GitHub) :
+Déploiement manuel de dépannage depuis Git Bash ou Linux, avec `sshpass` installé (mêmes valeurs que dans GitHub) :
 
 ```bash
-SSH_HOST=185.98.131.155 SSH_USER=i-dia2811273 SSH_KEY_FILE=~/.ssh/idialogos_deploy DEPLOY_PATH=htdocs \
+SSH_HOST=185.98.131.155 SSH_USER=i-dia2811273 SSH_PASSWORD='...' DEPLOY_PATH=htdocs \
 SITE_URL=http://i-dialogos.com SITE_IP=185.98.131.155 DEPLOY_TOKEN=... bash deploy/deploy.sh deploy
 ```
