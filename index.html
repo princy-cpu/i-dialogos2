@@ -39,7 +39,7 @@
         <aside class="event-box"><h2>Actualités / Événements</h2><div id="database-news-events"></div><a href="/actualites" class="theme-button home-cta">Voir toutes les actualités →</a></aside>
       </div>
       <aside class="analysis-column" id="analyses"><h2 class="analysis-heading">Analyses <span></span></h2><div id="database-analysis-articles"></div><a class="theme-button home-cta" href="/analyses">Voir toutes les analyses →</a></aside>
-      <form class="quick-newsletter" id="quick-newsletter"><label for="quick-email">Recevoir l’InfoLettre</label><input id="quick-email" type="email" placeholder="✉  Entrer votre email" required><button type="submit">Pour s’abonner</button><span class="quick-message" aria-live="polite"></span></form>
+      <form class="quick-newsletter" id="quick-newsletter" method="post" action="/newsletter" novalidate><label for="quick-email">Recevoir l’InfoLettre</label><input id="quick-email" type="email" name="email" autocomplete="email" maxlength="254" placeholder="✉  Entrer votre email" required><input class="hp-field" type="text" name="website" tabindex="-1" autocomplete="off" aria-hidden="true"><button type="submit">Pour s’abonner</button><span class="quick-message" role="status" aria-live="polite"></span></form>
     </section>
 
     <div id="database-explore-themes"></div>
@@ -213,7 +213,7 @@
     <!-- 17 – Clôture -->
     <section class="mk-closing" id="infolettre">
       <h2>Recevez les dernières informations de I-Dialogos</h2>
-      <form id="newsletter-form"><input type="email" name="email" placeholder="Adresse email" aria-label="Adresse email" required><button type="submit" aria-label="S’abonner">→</button><span class="newsletter-message" aria-live="polite"></span></form>
+      <form id="newsletter-form" method="post" action="/newsletter" novalidate><input type="email" name="email" autocomplete="email" maxlength="254" placeholder="Adresse email" aria-label="Adresse email" required><input class="hp-field" type="text" name="website" tabindex="-1" autocomplete="off" aria-hidden="true"><button type="submit" aria-label="S’abonner">→</button><span class="newsletter-message" role="status" aria-live="polite"></span></form>
       <div class="mk-closing-social"><a href="https://www.linkedin.com/" target="_blank" rel="noopener" aria-label="Suivre I-Dialogos sur LinkedIn">in</a></div>
     </section>
   </main>

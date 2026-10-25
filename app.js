@@ -108,12 +108,31 @@ document.querySelectorAll('[data-carousel]').forEach(carousel => {
   }, { passive: true });
   update();
 });
-document.querySelectorAll('#quick-newsletter,#newsletter-form').forEach(form => form.addEventListener('submit', event => {
+// Newsletter : envoi au serveur (/newsletter), message de confirmation ou d'erreur affiché sous le formulaire.
+// Sans JavaScript, le formulaire est envoyé normalement et le serveur répond par une page.
+document.querySelectorAll('#quick-newsletter,#newsletter-form').forEach(form => form.addEventListener('submit', async event => {
   event.preventDefault();
-  const feedback = form.querySelector('[aria-live="polite"]') || document.createElement('span');
-  feedback.textContent = 'Inscription enregistrée pour cette démonstration.';
-  if (!feedback.isConnected) form.append(feedback);
-  form.reset();
+  const feedback = form.querySelector('[aria-live="polite"]');
+  const input = form.querySelector('input[type="email"]');
+  const button = form.querySelector('button[type="submit"]');
+  const show = (message, ok) => {
+    feedback.textContent = message;
+    feedback.classList.toggle('is-error', !ok);
+    feedback.classList.toggle('is-success', ok);
+  };
+  // La validation (et le message, dans la langue du visiteur) est faite par le serveur.
+  button.disabled = true;
+  try {
+    const response = await fetch(form.action, { method: 'POST', body: new FormData(form), headers: { Accept: 'application/json' } });
+    const result = await response.json();
+    show(result.message, result.ok);
+    if (result.ok) form.reset();
+    else input.focus();
+  } catch (_) {
+    show('Une erreur est survenue. Réessayez dans un instant.', false);
+  } finally {
+    button.disabled = false;
+  }
 }));
 // Experts : défilé automatique (maquette 14). Les fiches sont dupliquées pour une boucle continue.
 const expertTrack = document.querySelector('.mk-expert-track');

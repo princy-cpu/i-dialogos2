@@ -9,7 +9,7 @@ import time
 
 import psycopg
 import pytest
-from conftest import ADMIN, DATABASE_URL, DEPLOY_TOKEN, ROOT, Client, query, reset_database
+from conftest import ADMIN, DATABASE_URL, DEPLOY_TOKEN, MAIL_LOG, ROOT, SITE_URL, Client, query, reset_database
 
 PNG = b'\x89PNG\r\n\x1a\n' + b'0' * 64
 
@@ -370,6 +370,116 @@ def test_gestion_des_invites_et_des_experts(admin, visitor):
     admin.post(f'/admin/experts/{expert_id}/delete', [('_csrf', admin.csrf('/admin/experts'))])
     assert not query('SELECT 1 FROM people WHERE id=%s', (expert_id,))
     assert 'Giuseppe GILIBERTI' in expert_track(visitor.get('/').text)  # plus aucun expert : contenu fixe de retour
+
+
+
+# --- Lot 4 : newsletter ----------------------------------------------------------------------------------------------
+
+def newsletter_post(client, email: str, **extra):
+    return client.post('/newsletter', [('email', email), *extra.items()], headers={'Accept': 'application/json'})
+
+
+def read_mails() -> list:
+    if not MAIL_LOG.exists():
+        return []
+    return [json.loads(line) for line in MAIL_LOG.read_text(encoding='utf-8').splitlines() if line.strip()]
+
+
+def wait_for_mail(predicate, timeout: float = 8) -> list:
+    """Les e-mails partent après la réponse (file traitée en arrière-plan) : on attend qu'ils apparaissent."""
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        found = [mail for mail in read_mails() if predicate(mail)]
+        if found:
+            return found
+        time.sleep(0.2)
+    return []
+
+
+def resave_article(admin, article_id: str, title: str, status: str) -> None:
+    form = admin.get(f'/admin/articles/{article_id}/edit').text
+    token = re.search(r'name="_csrf" value="([^"]+)"', form).group(1)
+    field, categories = category_field(form)
+    fields = [('_csrf', token), ('id', article_id), ('title', title), ('excerpt', 'Extrait modifié'), ('body_html', '<p>Texte modifié</p>'),
+              ('author', 'Jean-Claude Mairal'), ('language', 'fr'), ('status', status), (field, categories[4]), ('comments_enabled', '1')]
+    assert admin.post('/admin/articles/save', fields).status == 303
+
+
+def test_inscription_newsletter_avec_double_confirmation(visitor):
+    query('DELETE FROM rate_events')
+    bad = newsletter_post(visitor, 'pas-une-adresse')
+    assert bad.status == 422 and json.loads(bad.text) == {'ok': False, 'message': 'Saisissez une adresse e-mail valide.'}
+    ok = newsletter_post(visitor, '  Lectrice@Exemple.org ')
+    assert ok.status == 200 and json.loads(ok.text)['ok'] and 'e-mail de confirmation' in json.loads(ok.text)['message']
+    assert query('SELECT status FROM subscribers WHERE email=%s', ('lectrice@exemple.org',))[0]['status'] == 'pending'
+    mail = wait_for_mail(lambda m: m['to'] == 'lectrice@exemple.org' and m['subject'].startswith('Confirmez'))
+    assert mail, 'e-mail de confirmation absent'
+    link = re.search(re.escape(SITE_URL) + r'(/newsletter/confirmer\?token=[A-Za-z0-9_-]+)', mail[-1]['html']).group(1)
+    assert f'{SITE_URL}/newsletter/desinscription?token=' in mail[-1]['html']  # lien de désinscription dans chaque e-mail
+    pending_again = newsletter_post(visitor, 'lectrice@exemple.org')
+    assert json.loads(pending_again.text)['message'].startswith('Votre inscription attend')  # doublon en attente
+    confirmed = visitor.get(link)
+    assert confirmed.status == 200 and 'Inscription confirmée' in confirmed.text
+    assert query('SELECT status FROM subscribers WHERE email=%s', ('lectrice@exemple.org',))[0]['status'] == 'active'
+    duplicate = newsletter_post(visitor, 'LECTRICE@exemple.org')
+    assert json.loads(duplicate.text)['message'] == 'Cette adresse est déjà inscrite à la newsletter.'
+    assert len(query('SELECT id FROM subscribers WHERE email=%s', ('lectrice@exemple.org',))) == 1
+    trap = newsletter_post(visitor, 'robot@exemple.org', website='https://spam.example')
+    assert trap.status == 200 and not query('SELECT 1 FROM subscribers WHERE email=%s', ('robot@exemple.org',))  # champ piège
+    without_js = visitor.post('/newsletter', [('email', 'sans-js@exemple.org')])
+    assert without_js.status == 200 and 'id="accueil"' in without_js.text and 'e-mail de confirmation' in without_js.text
+    assert visitor.get('/newsletter/confirmer?token=jeton-inconnu-0123456789').status == 404
+
+
+def test_limite_des_inscriptions_par_adresse_ip(visitor):
+    query('DELETE FROM rate_events')
+    statuses = [newsletter_post(visitor, f'limite{number}@exemple.org').status for number in range(7)]
+    assert statuses[:5] == [200] * 5 and statuses[5:] == [429, 429]
+    query('DELETE FROM rate_events')
+
+
+def test_annonce_des_articles_aux_abonnes_une_seule_fois(admin, visitor, server_url):
+    now = '2026-01-01T00:00:00+00:00'
+    for email, status, token in (('abonne@exemple.org', 'active', 'jeton-abonne-0123456789abcdef'), ('parti@exemple.org', 'unsubscribed', 'jeton-parti-0123456789abcdef'),
+                                 ('attente@exemple.org', 'pending', 'jeton-attente-0123456789abcdef')):
+        query('INSERT INTO subscribers(email,status,token,language,created_at) VALUES(%s,%s,%s,%s,%s)', (email, status, token, 'fr', now))
+    draft = create_article(admin, 'Annonce brouillon Zeta', status='draft')
+    article_id = create_article(admin, 'Annonce Newsletter Zeta', excerpt='Un extrait pour la newsletter')
+    mail = wait_for_mail(lambda m: m['subject'] == 'Annonce Newsletter Zeta')
+    mail = wait_for_mail(lambda m: m['subject'] == 'Annonce Newsletter Zeta' and m['to'] == 'abonne@exemple.org')
+    recipients = {m['to'] for m in read_mails() if m['subject'] == 'Annonce Newsletter Zeta'}
+    assert recipients == {'abonne@exemple.org', 'lectrice@exemple.org'}  # abonnés confirmés seulement (ni désinscrit, ni en attente)
+    html = mail[0]['html']
+    assert f'{SITE_URL}/article/{article_slug(article_id)}' in html and 'Un extrait pour la newsletter' in html
+    assert re.search(r'<img src="' + re.escape(SITE_URL) + r'/uploads/[a-f0-9-]+\.png"', html)
+    assert f'{SITE_URL}/newsletter/desinscription?token=jeton-abonne-0123456789abcdef' in html and 'Se désinscrire' in html
+    assert mail[0]['headers']['List-Unsubscribe-Post'] == 'List-Unsubscribe=One-Click'
+    assert not wait_for_mail(lambda m: 'brouillon Zeta' in m['subject'], timeout=1)  # un brouillon n'est pas annoncé
+    resave_article(admin, article_id, 'Annonce Newsletter Zeta', 'published')  # simple modification
+    resave_article(admin, article_id, 'Annonce Newsletter Zeta', 'draft')  # dépublication…
+    resave_article(admin, article_id, 'Annonce Newsletter Zeta', 'published')  # …puis republication
+    time.sleep(1)
+    assert len([m for m in read_mails() if m['subject'] == 'Annonce Newsletter Zeta']) == 2  # une seule fois par article et par abonné
+    assert query('SELECT COUNT(*) AS n FROM mail_queue WHERE article_id=%s', (article_id,))[0]['n'] == 2
+    resave_article(admin, draft, 'Annonce brouillon Zeta', 'published')  # brouillon publié : annoncé à son tour
+    assert wait_for_mail(lambda m: m['subject'] == 'Annonce brouillon Zeta')
+    admin_page = admin.get('/admin/newsletter').text
+    assert 'abonne@exemple.org' in admin_page and 'Envoyer la file maintenant' in admin_page
+    queue = Client(server_url).post('/_ops/mail-queue', [], headers={'X-Deploy-Token': DEPLOY_TOKEN})
+    assert queue.status == 200 and json.loads(queue.text)['status'] == 'ok'
+
+
+def test_desinscription_de_la_newsletter(visitor):
+    token = 'jeton-abonne-0123456789abcdef'
+    page = visitor.get(f'/newsletter/desinscription?token={token}')
+    assert page.status == 200 and 'abonne@exemple.org' in page.text and 'Confirmer la désinscription' in page.text
+    assert query('SELECT status FROM subscribers WHERE token=%s', (token,))[0]['status'] == 'active'  # le lien seul ne désinscrit pas
+    done = visitor.post(f'/newsletter/desinscription?token={token}', [])
+    assert done.status == 200 and 'bien été désinscrite' in done.text
+    assert query('SELECT status FROM subscribers WHERE token=%s', (token,))[0]['status'] == 'unsubscribed'
+    one_click = visitor.post('/newsletter/desinscription?token=jeton-attente-0123456789abcdef', [('List-Unsubscribe', 'One-Click')])
+    assert one_click.status == 200  # désinscription en un clic depuis la messagerie (RFC 8058)
+    assert visitor.get('/newsletter/desinscription?token=inconnu-0123456789abcdefgh').status == 404
 
 
 def test_operations_de_deploiement(server_url):

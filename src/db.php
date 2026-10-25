@@ -156,6 +156,21 @@ const MIGRATIONS = [
             . " featured_on TEXT NOT NULL DEFAULT '', position INTEGER NOT NULL DEFAULT 0, created_at TEXT NOT NULL, updated_at TEXT NOT NULL)",
         'CREATE INDEX IF NOT EXISTS people_kind ON people (kind, featured_on, position)',
     ]],
+    4 => ['Newsletter : abonnés, file d’envoi, envois par article, limitation des envois de formulaires', [
+        // status : pending (en attente de confirmation), active, unsubscribed ; token : lien de confirmation et de désinscription.
+        "CREATE TABLE IF NOT EXISTS subscribers (id BIGSERIAL PRIMARY KEY, email TEXT UNIQUE NOT NULL, status TEXT NOT NULL DEFAULT 'pending'"
+            . " CHECK (status IN ('pending','active','unsubscribed')), token TEXT UNIQUE NOT NULL, language TEXT NOT NULL DEFAULT 'fr', created_at TEXT NOT NULL,"
+            . " confirmation_sent_at TEXT NOT NULL DEFAULT '', confirmed_at TEXT NOT NULL DEFAULT '', unsubscribed_at TEXT NOT NULL DEFAULT '')",
+        // Une ligne par article déjà annoncé : la clé primaire garantit un seul envoi par article.
+        'CREATE TABLE IF NOT EXISTS article_mailings (article_id TEXT PRIMARY KEY REFERENCES articles(id) ON DELETE CASCADE, queued_at TEXT NOT NULL, recipients INTEGER NOT NULL DEFAULT 0)',
+        "CREATE TABLE IF NOT EXISTS mail_queue (id BIGSERIAL PRIMARY KEY, kind TEXT NOT NULL CHECK (kind IN ('confirm','article')),"
+            . " subscriber_id BIGINT NOT NULL REFERENCES subscribers(id) ON DELETE CASCADE, article_id TEXT REFERENCES articles(id) ON DELETE CASCADE,"
+            . " status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending','sent','failed','cancelled')), attempts INTEGER NOT NULL DEFAULT 0,"
+            . " last_error TEXT NOT NULL DEFAULT '', created_at TEXT NOT NULL, next_attempt_at TEXT NOT NULL, sent_at TEXT NOT NULL DEFAULT '')",
+        'CREATE INDEX IF NOT EXISTS mail_queue_pending ON mail_queue (status, next_attempt_at, id)',
+        'CREATE TABLE IF NOT EXISTS rate_events (scope TEXT NOT NULL, ip TEXT NOT NULL, at BIGINT NOT NULL)',
+        'CREATE INDEX IF NOT EXISTS rate_events_lookup ON rate_events (scope, ip, at)',
+    ]],
 ];
 
 function latest_migration(): int

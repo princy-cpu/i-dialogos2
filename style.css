@@ -365,3 +365,12 @@ footer .footer-cta-button:focus-visible{outline:3px solid var(--mk-orange);outli
 .admin-person-photo img,.admin-person-photo .person-initials{width:44px;height:44px;border-radius:50%;object-fit:cover;font-size:16px}
 @media(max-width:600px){.person-card,.people-static>article{flex-direction:column;align-items:center;text-align:center}.people-grid{grid-template-columns:1fr}.person-featured{padding:18px}.mk-expert-track .person-initials{width:100px;height:100px}}
 @media(max-width:900px){.mk-split>.person-initials{width:180px;font-size:52px}}
+
+/* === Newsletter : champ piège invisible, messages de retour === */
+.hp-field{position:absolute!important;left:-10000px!important;width:1px;height:1px;opacity:0;pointer-events:none}
+.quick-message.is-success,.newsletter-message.is-success{color:var(--green)}
+.quick-message.is-error{color:#b3241b}
+.mk-closing .newsletter-message{font-size:15px;font-weight:600}
+.mk-closing .newsletter-message.is-error{color:#ffd1cc}
+.mk-closing .newsletter-message.is-success{color:#c8f0d4}
+.newsletter-page{min-height:40vh}

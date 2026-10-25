@@ -13,6 +13,7 @@ require __DIR__ . '/http.php';
 require __DIR__ . '/public_pages.php';
 require __DIR__ . '/listings.php';
 require __DIR__ . '/people.php';
+require __DIR__ . '/newsletter.php';
 require __DIR__ . '/admin_pages.php';
 require __DIR__ . '/ops.php';
 
@@ -139,6 +140,14 @@ function route_get(string $path): void
         public_people();
         return;
     }
+    if ($path === '/newsletter/confirmer') {
+        newsletter_confirm();
+        return;
+    }
+    if ($path === '/newsletter/desinscription') {
+        newsletter_unsubscribe_page();
+        return;
+    }
     if (str_starts_with($path, '/article/')) {
         public_article(substr($path, 9));
         return;
@@ -173,7 +182,7 @@ function route_get(string $path): void
         $admin = ['/admin/articles' => fn() => dashboard('articles'), '/admin/events' => 'events_page', '/admin/events/new' => fn() => event_form(),
             '/admin/articles/new' => fn() => article_form(), '/admin/categories' => fn() => taxonomy_page('categories'),
             '/admin/tags' => fn() => taxonomy_page('tags'), '/admin/templates' => 'templates_page', '/admin/comments' => 'comments_page',
-            '/admin/languages' => 'languages_page'];
+            '/admin/languages' => 'languages_page', '/admin/newsletter' => fn() => newsletter_admin_page()];
         if (isset($admin[$path])) {
             $admin[$path]();
             return;
@@ -226,6 +235,16 @@ function route_post(string $path): void
         $path === '/admin/setup' ? setup_post() : login_post();
         return;
     }
+    // Newsletter : formulaires publics sans jeton CSRF (pages statiques) ; la double confirmation, le champ piège et la
+    // limite par adresse IP protègent l'inscription, et le jeton secret du lien protège la désinscription.
+    if ($path === '/newsletter') {
+        newsletter_subscribe();
+        return;
+    }
+    if ($path === '/newsletter/desinscription') {
+        newsletter_unsubscribe();
+        return;
+    }
     if (str_starts_with($path, '/article/') && str_ends_with($path, '/comment')) {
         if (!csrf_ok()) {
             $expired('/');
@@ -246,13 +265,15 @@ function route_post(string $path): void
     $routes = ['/admin/logout' => 'logout', '/admin/articles/save' => 'save_article', '/admin/events/save' => 'save_event',
         '/admin/categories' => fn() => taxonomy_post('categories', false), '/admin/categories/delete' => fn() => taxonomy_post('categories', true),
         '/admin/tags' => fn() => taxonomy_post('tags', false), '/admin/tags/delete' => fn() => taxonomy_post('tags', true),
-        '/admin/templates' => 'templates_post', '/admin/languages' => 'languages_post'];
+        '/admin/templates' => 'templates_post', '/admin/languages' => 'languages_post', '/admin/newsletter/process' => 'newsletter_admin_process'];
     if (isset($routes[$path])) {
         $routes[$path]();
     } elseif (count($segments) === 4 && $segments[1] === 'events' && $segments[3] === 'delete') {
         delete_event($segments[2]);
     } elseif (count($segments) === 4 && $segments[1] === 'articles' && $segments[3] === 'delete') {
         delete_article($segments[2]);
+    } elseif (count($segments) === 4 && $segments[1] === 'newsletter' && $segments[3] === 'delete') {
+        delete_subscriber($segments[2]);
     } elseif (count($segments) === 3 && $segments[2] === 'save' && people_kind_from_path($segments[1]) !== null) {
         save_person(people_kind_from_path($segments[1]));
     } elseif (count($segments) === 4 && $segments[3] === 'delete' && people_kind_from_path($segments[1]) !== null) {

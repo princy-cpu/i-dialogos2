@@ -2,13 +2,28 @@
 /** Administration : compte, tableau de bord, articles, actualités, classement, modèles, commentaires, langues. */
 declare(strict_types=1);
 
+const ADMIN_PAGE_SIZE = 20;
+
+/** Page demandée (?page=) d'une liste de l'administration. */
+function admin_list_page(): int
+{
+    return requested_page();
+}
+
+/** Pagination d'une liste de l'administration (même composant que les listes publiques). */
+function admin_pagination(string $base, array $filters, int $page, int $total): string
+{
+    $pages = max(1, (int) ceil($total / ADMIN_PAGE_SIZE));
+    return pagination_nav($base, $filters, min($page, $pages), $pages);
+}
+
 function admin_page(string $title, string $content, string $active = ''): string
 {
     $session = auth();
     $user = $session ? esc($session['username']) : '';
     $links = [['Accueil', '/admin', 'home'], ['Articles', '/admin/articles', 'articles'], ['Actualités et événements', '/admin/events', 'events'],
         ['Catégories', '/admin/categories', 'categories'], ['Étiquettes', '/admin/tags', 'tags'], ['Modèles', '/admin/templates', 'templates'],
-        ['Commentaires', '/admin/comments', 'comments'], ['Invités de la semaine', '/admin/invites', 'invites'], ['Experts', '/admin/experts', 'experts'],
+        ['Commentaires', '/admin/comments', 'comments'], ['Invités de la semaine', '/admin/invites', 'invites'], ['Experts', '/admin/experts', 'experts'], ['Newsletter', '/admin/newsletter', 'newsletter'],
         ['Langues', '/admin/languages', 'languages']];
     $nav = '';
     foreach ($links as [$label, $href, $key]) {
@@ -472,7 +487,7 @@ function save_article(): void
         article_form($articleId ?: null, $imageError);
         return;
     }
-    $savedId = db()->transaction(function (Db $db) use ($r, $articleId, $title, $excerpt, $body, $author, $status, $imagePath): string {
+    $savedId = db()->transaction(function (Db $db) use ($r, $articleId, $title, $excerpt, $body, $author, $status, $imagePath): array {
         $existing = $articleId !== '' ? $db->one('SELECT * FROM articles WHERE id=?', [$articleId]) : null;
         $id = $existing ? $existing['id'] : bin2hex(random_bytes(16));
         $root = slugify($title);
@@ -522,9 +537,13 @@ function save_article(): void
                 $db->execute('INSERT OR IGNORE INTO article_tags(article_id,tag_id) VALUES(?,?)', [$id, find_or_create_term($db, 'tags', $name, $now)]);
             }
         }
-        return $id;
+        return [$id, ($existing['status'] ?? '') === 'published'];
     });
+    [$savedId, $wasPublished] = $savedId;
     if ($status === 'published') {
+        if (!$wasPublished && queue_article_mailing(db(), $savedId) > 0) {
+            after_response(fn() => process_mail_queue());
+        }
         after_response(fn() => pretranslate([$savedId], []));
     }
     redirect('/admin');
