@@ -221,14 +221,14 @@ def test_accueil_quatre_analyses_et_actualites(admin, visitor):
 
 
 def test_pagination_des_analyses(admin, visitor):
-    for number in range(12):
+    for number in range(14):
         article_id = create_article(admin, f'Paginationzeta numéro {number:02d}')
         query('UPDATE articles SET published_at=%s WHERE id=%s', (f'2020-01-{number + 1:02d}T10:00:00+00:00', article_id))
     first = visitor.get('/analyses?q=Paginationzeta')
-    assert first.status == 200 and len(card_slugs(first.text)) == 10
+    assert first.status == 200 and len(card_slugs(first.text)) == 12  # 12 éléments par page
     assert '<nav class="pagination" aria-label="Pagination">' in first.text and 'aria-current="page"' in first.text
     assert 'href="/analyses?q=Paginationzeta&amp;page=2"' in first.text  # le filtre est conservé dans la pagination
-    assert 'numéro 11' in first.text and 'numéro 01' not in first.text  # du plus récent au plus ancien
+    assert 'numéro 13' in first.text and 'numéro 01' not in first.text  # du plus récent au plus ancien
     second = visitor.get('/analyses?q=Paginationzeta&page=2')
     assert second.status == 200 and len(card_slugs(second.text)) == 2 and 'numéro 00' in second.text
     beyond = visitor.get('/analyses?q=Paginationzeta&page=3')
@@ -281,7 +281,8 @@ def test_articles_similaires_et_navigation(admin, visitor):
     query('UPDATE articles SET published_at=%s WHERE id=%s', ('2031-01-01T10:00:00+00:00', main))
     query('UPDATE articles SET published_at=%s WHERE id=%s', ('2031-01-02T10:00:00+00:00', close))
     page = visitor.get(f'/article/{article_slug(main)}').text
-    related = card_slugs(page.split('id="related-title"', 1)[1])
+    aside = page.split('<aside class="article-aside"', 1)[1].split('</aside>', 1)[0]  # colonne à droite de l'article
+    related = re.findall(r'class="aside-article" href="/article/([^"]+)"', aside)
     assert 3 <= len(related) <= 4
     assert article_slug(main) not in related and article_slug(draft) not in related  # jamais l'article courant ni un brouillon
     assert related[0] == article_slug(close)  # celui qui partage le plus de thèmes et de mots-clés
@@ -480,6 +481,43 @@ def test_desinscription_de_la_newsletter(visitor):
     one_click = visitor.post('/newsletter/desinscription?token=jeton-attente-0123456789abcdef', [('List-Unsubscribe', 'One-Click')])
     assert one_click.status == 200  # désinscription en un clic depuis la messagerie (RFC 8058)
     assert visitor.get('/newsletter/desinscription?token=inconnu-0123456789abcdefgh').status == 404
+
+
+
+# --- Lot 5 : commentaires --------------------------------------------------------------------------------------------
+
+def post_comment(client, slug: str, **fields):
+    token = re.search(r'name="_csrf" value="([^"]+)"', client.get(f'/article/{slug}').text).group(1)
+    data = [('_csrf', fields.pop('_csrf', token))] + list(fields.items())
+    return client.post(f'/article/{slug}/comment', data)
+
+
+def test_commentaires_messages_antispam_et_moderation(admin, visitor):
+    query('DELETE FROM rate_events')
+    slug = article_slug(create_article(admin, 'Article à commenter Zeta'))
+    page = visitor.get(f'/article/{slug}').text
+    assert '<main class="article-layout">' in page and 'name="website"' in page  # champ piège présent
+    invalid = post_comment(visitor, slug, author='', email='pas-une-adresse', body='Mon avis détaillé')
+    assert invalid.status == 422 and 'Le commentaire n’a pas été envoyé.' in invalid.text
+    assert 'Indiquez votre nom.' in invalid.text and 'L’adresse e-mail n’est pas valide.' in invalid.text
+    assert '>Mon avis détaillé</textarea>' in invalid.text  # le texte saisi est conservé
+    expired = post_comment(visitor, slug, _csrf='jeton-perime', author='Lectrice', body='Texte conservé')
+    assert expired.status == 403 and 'Votre session a expiré' in expired.text and '>Texte conservé</textarea>' in expired.text
+    trap = post_comment(visitor, slug, author='Robot', body='Achetez maintenant', website='https://spam.example')
+    assert trap.status == 303 and not query('SELECT 1 FROM comments WHERE author=%s', ('Robot',))
+    for number in range(3):
+        assert post_comment(visitor, slug, author=f'Lectrice {number}', email='lectrice@exemple.org', body=f'Commentaire <b>{number}</b>').status == 303
+    limited = post_comment(visitor, slug, author='Lectrice 4', body='Un de trop')
+    assert limited.status == 429 and 'plusieurs commentaires en peu de temps' in limited.text
+    assert len(query("SELECT 1 FROM comments c JOIN articles a ON a.id=c.article_id WHERE a.slug=%s AND c.status='pending'", (slug,))) == 3
+    success = visitor.get(f'/article/{slug}?sent=1')
+    assert 'Votre commentaire a été envoyé et sera publié après modération.' in success.text
+    assert 'Commentaire &lt;b&gt;0&lt;/b&gt;' not in success.text  # en attente de modération : pas encore affiché
+    comment_id = query("SELECT c.id FROM comments c JOIN articles a ON a.id=c.article_id WHERE a.slug=%s AND c.author='Lectrice 0'", (slug,))[0]['id']
+    admin.post(f'/admin/comments/{comment_id}', [('_csrf', admin.csrf('/admin/comments')), ('action', 'approve')])
+    approved = visitor.get(f'/article/{slug}').text
+    assert 'Commentaires (1)' in approved and 'Commentaire &lt;b&gt;0&lt;/b&gt;' in approved  # affiché, échappé
+    query('DELETE FROM rate_events')
 
 
 def test_operations_de_deploiement(server_url):

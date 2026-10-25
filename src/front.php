@@ -246,10 +246,7 @@ function route_post(string $path): void
         return;
     }
     if (str_starts_with($path, '/article/') && str_ends_with($path, '/comment')) {
-        if (!csrf_ok()) {
-            $expired('/');
-            return;
-        }
+        // Le jeton de session est vérifié par comment_post, qui réaffiche l'article sans perdre le texte saisi.
         comment_post(explode('/', trim($path, '/'))[1] ?? '');
         return;
     }

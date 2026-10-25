@@ -374,3 +374,20 @@ footer .footer-cta-button:focus-visible{outline:3px solid var(--mk-orange);outli
 .mk-closing .newsletter-message.is-error{color:#ffd1cc}
 .mk-closing .newsletter-message.is-success{color:#c8f0d4}
 .newsletter-page{min-height:40vh}
+
+/* === Page d'un article : articles similaires à droite (sous l'article sur mobile), commentaires === */
+.article-layout{display:grid;grid-template-columns:minmax(0,1fr) 320px;grid-template-areas:"article aside" "comments aside";column-gap:56px;max-width:1240px;margin:0 auto;padding:0 24px}
+.article-layout>.article-page{grid-area:article;max-width:none;margin:0;padding-left:0;padding-right:0;padding-bottom:28px}
+.article-layout>.article-aside{grid-area:aside;align-self:start;position:sticky;top:96px;margin-top:58px}
+.article-layout>.article-comments{grid-area:comments;padding-bottom:72px}
+.article-aside h2{margin:0 0 14px;font:600 22px/1.25 var(--serif)}
+.aside-articles{display:grid;gap:12px;margin:0 0 14px;padding:0;list-style:none}
+.aside-article{display:grid;grid-template-columns:84px 1fr;align-items:center;gap:12px;padding:10px;border:1px solid var(--line);border-radius:12px;background:#fff;color:var(--ink);text-decoration:none;transition:border-color .2s,box-shadow .2s,transform .2s var(--ease)}
+.aside-article:hover{border-color:var(--green);box-shadow:var(--shadow-sm);transform:translateY(-2px);text-decoration:none}
+.aside-article img,.aside-placeholder{width:84px;height:64px;border-radius:8px;object-fit:cover}
+.aside-placeholder{display:grid;place-items:center;background:#edf1eb;color:var(--green);font:700 18px var(--serif)}
+.aside-article strong{display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:3;line-clamp:3;overflow:hidden;font:600 14px/1.35 var(--sans)}
+.aside-article time{display:block;margin-top:4px;font-size:12px;color:var(--orange)}
+.comment-form .field-error{display:block;margin-top:4px;font-size:13px;font-weight:600;color:#b3241b}
+.comment-form [aria-invalid="true"]{border-color:#b3241b;box-shadow:0 0 0 3px #b3241b22}
+@media(max-width:1000px){.article-layout{grid-template-columns:1fr;grid-template-areas:"article" "aside" "comments";padding:0 17px}.article-layout>.article-aside{position:static;margin:8px 0 32px}}

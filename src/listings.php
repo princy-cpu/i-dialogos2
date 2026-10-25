@@ -5,7 +5,8 @@
  */
 declare(strict_types=1);
 
-const LIST_PAGE_SIZE = 10;
+const LIST_PAGE_SIZE = 10;      // actualités et événements
+const ANALYSES_PAGE_SIZE = 12;  // Notes, analyses et articles
 const NEWS_KINDS = ['news' => 'Actualité', 'event' => 'Événement'];
 
 /** Numéro de page demandé (?page=) : tout ce qui n'est pas un entier positif vaut 1. */
@@ -174,14 +175,14 @@ function public_analyses(): void
     }
     $condition = implode(' AND ', $where);
     $total = (int) $db->value("SELECT COUNT(*) FROM articles a WHERE $condition", $params);
-    $pages = max(1, (int) ceil($total / LIST_PAGE_SIZE));
+    $pages = max(1, (int) ceil($total / ANALYSES_PAGE_SIZE));
     $page = requested_page();
     if ($page > $pages) {
         list_page_not_found('/analyses', $filters);
         return;
     }
     $articles = $db->all("SELECT a.* FROM articles a WHERE $condition ORDER BY a.published_at DESC NULLS LAST, a.created_at DESC, a.id LIMIT ? OFFSET ?",
-        [...$params, LIST_PAGE_SIZE, ($page - 1) * LIST_PAGE_SIZE]);
+        [...$params, ANALYSES_PAGE_SIZE, ($page - 1) * ANALYSES_PAGE_SIZE]);
     $termOptions = function (string $table) use ($db, $language): array {
         $rows = sort_by_name(localize_terms($db, $db->all("SELECT id,name,slug FROM $table ORDER BY name"), $language));
         return array_column($rows, 'name', 'slug');
@@ -266,8 +267,8 @@ function adjacent_articles(Db $db, array $article): array
     return [$older, $newer];
 }
 
-/** Section « À lire aussi » et liens « Article précédent / suivant » en bas d'un article. */
-function article_footer_links(Db $db, array $article, string $language): string
+/** Liens « Article précédent » et « Article suivant » en bas d'un article. */
+function article_pager(Db $db, array $article, string $language): string
 {
     [$older, $newer] = adjacent_articles($db, $article);
     $neighbours = translate_records($db, array_values(array_filter([$older, $newer])), $language, ['title']);
@@ -279,8 +280,20 @@ function article_footer_links(Db $db, array $article, string $language): string
     if ($newer) {
         $pager .= '<a class="article-pager-link is-next" rel="next" href="/article/' . q($newer['slug']) . '"><span class="article-pager-label"><span>Article suivant</span> →</span><strong>' . esc($titles[$newer['id']]) . '</strong></a>';
     }
-    $pager = $pager ? '<nav class="article-pager" aria-label="Articles précédent et suivant">' . $pager . '</nav>' : '';
+    return $pager ? '<nav class="article-pager" aria-label="Articles précédent et suivant">' . $pager . '</nav>' : '';
+}
+
+/** Colonne « À lire aussi » (à droite de l'article sur ordinateur, sous l'article sur mobile). */
+function related_aside(Db $db, array $article, string $language): string
+{
     $similar = similar_articles($db, (string) $article['id']);
-    $related = $similar ? '<section class="related-articles" aria-labelledby="related-title"><h2 id="related-title" class="theme-subtitle">À lire aussi</h2><div class="public-article-grid related-grid">' . article_cards($db, $similar, $language) . '</div></section>' : '';
-    return $pager . $related;
+    if (!$similar) {
+        return '';
+    }
+    $items = '';
+    foreach (translate_records($db, $similar, $language, ['title']) as $item) {
+        $image = $item['featured_image'] ? '<img src="' . esc($item['featured_image']) . '" alt="" loading="lazy">' : '<span class="aside-placeholder" aria-hidden="true">I·D</span>';
+        $items .= '<li><a class="aside-article" href="/article/' . q($item['slug']) . '" lang="' . esc(content_lang($item)) . '">' . $image . '<span><strong>' . esc($item['title']) . '</strong><time>' . esc(long_date(article_date($item), $language)) . '</time></span></a></li>';
+    }
+    return '<aside class="article-aside" aria-labelledby="related-title"><h2 id="related-title">À lire aussi</h2><ul class="aside-articles">' . $items . '</ul><a class="read-link aside-more" href="/analyses">Toutes les analyses <span>→</span></a></aside>';
 }
