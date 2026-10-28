@@ -14,6 +14,24 @@ nav?.addEventListener('click', event => {
   menuToggle?.setAttribute('aria-expanded', 'false');
   if (menuToggle) menuToggle.textContent = '☰';
 });
+// Rubriques dépliantes : en ouvrir une referme les autres du même groupe (menu principal, listes du réseau…).
+// L'attribut name des <details> le fait déjà dans les navigateurs récents ; ce code couvre les autres.
+document.querySelectorAll('details').forEach(item => item.addEventListener('toggle', () => {
+  if (!item.open) return;
+  const group = item.closest('nav, ul, ol, section, div');
+  group?.querySelectorAll('details[open]').forEach(other => {
+    if (other !== item && !other.contains(item) && !item.contains(other)) other.open = false;
+  });
+}));
+// Menu principal : un clic ailleurs ou la touche Échap referme la rubrique ouverte.
+document.addEventListener('click', event => {
+  document.querySelectorAll('.head nav details[open]').forEach(item => { if (!item.contains(event.target)) item.open = false; });
+});
+document.addEventListener('keydown', event => {
+  if (event.key !== 'Escape') return;
+  const open = document.querySelector('.head nav details[open]');
+  if (open) { open.open = false; open.querySelector('summary').focus(); }
+});
 const search = document.querySelector('#search-panel');
 document.querySelector('#search-open')?.addEventListener('click', () => {
   search.classList.toggle('open');
@@ -53,61 +71,6 @@ if (themeGrid) {
   showPage();
 }
 
-// Carrousel manuel des actualités de l'accueil : boutons ‹ ›, points, clavier ; aucun défilement automatique.
-const reduceMotionCarousel = matchMedia('(prefers-reduced-motion: reduce)').matches;
-document.querySelectorAll('[data-carousel]').forEach(carousel => {
-  const track = carousel.querySelector('.news-track');
-  const slides = [...track.children];
-  if (slides.length < 2) return;
-  carousel.classList.add('is-enhanced');
-  const controls = document.createElement('div');
-  controls.className = 'carousel-controls';
-  const makeButton = (label, text, className) => {
-    const button = document.createElement('button');
-    button.type = 'button';
-    button.className = className;
-    button.setAttribute('aria-label', label);
-    button.textContent = text;
-    return button;
-  };
-  const previous = makeButton('Élément précédent', '‹', 'carousel-button');
-  const next = makeButton('Élément suivant', '›', 'carousel-button');
-  const dots = document.createElement('div');
-  dots.className = 'carousel-dots';
-  const dotButtons = slides.map((_, index) => makeButton(`Afficher l’élément ${index + 1} sur ${slides.length}`, '', 'carousel-dot'));
-  dots.append(...dotButtons);
-  controls.append(previous, dots, next);
-  carousel.append(controls);
-  const current = () => Math.round(track.scrollLeft / Math.max(1, track.clientWidth));
-  const goTo = index => {
-    const target = Math.max(0, Math.min(slides.length - 1, index));
-    track.scrollTo({ left: slides[target].offsetLeft - track.offsetLeft, behavior: reduceMotionCarousel ? 'auto' : 'smooth' });
-  };
-  const update = () => {
-    const index = current();
-    previous.disabled = index === 0;
-    next.disabled = index >= slides.length - 1;
-    dotButtons.forEach((dot, position) => dot.setAttribute('aria-current', String(position === index)));
-    // Les éléments hors champ ne sont ni lus ni atteignables au clavier tant qu'ils ne sont pas affichés.
-    slides.forEach((slide, position) => { slide.inert = position !== index; });
-  };
-  previous.addEventListener('click', () => goTo(current() - 1));
-  next.addEventListener('click', () => goTo(current() + 1));
-  dotButtons.forEach((dot, index) => dot.addEventListener('click', () => goTo(index)));
-  track.addEventListener('keydown', event => {
-    if (event.key === 'ArrowRight') goTo(current() + 1);
-    else if (event.key === 'ArrowLeft') goTo(current() - 1);
-    else return;
-    event.preventDefault();
-  });
-  let queued = false;
-  track.addEventListener('scroll', () => {
-    if (queued) return;
-    queued = true;
-    requestAnimationFrame(() => { queued = false; update(); });
-  }, { passive: true });
-  update();
-});
 // Newsletter : envoi au serveur (/newsletter), message de confirmation ou d'erreur affiché sous le formulaire.
 // Sans JavaScript, le formulaire est envoyé normalement et le serveur répond par une page.
 document.querySelectorAll('#quick-newsletter,#newsletter-form').forEach(form => form.addEventListener('submit', async event => {

@@ -192,23 +192,37 @@ function site_links(string $html): string
     );
 }
 
-/**
- * Lien de la page courante mis en évidence dans le menu (même style que le survol) : « Les Notes » pour les listes
- * et articles, « Thématiques » (et le thème ouvert) sur une page de thématique.
- */
+/** Rubrique du menu correspondant à la page affichée (titre de la rubrique et lien du sous-menu). */
 function mark_active_nav(string $header, string $path): string
 {
+    $current = function (string $summary, string $href) use (&$header): void {
+        $header = str_replace('<summary>' . $summary . '</summary>', '<summary class="is-active">' . $summary . '</summary>', $header);
+        $header = (string) preg_replace('#<a href="' . preg_quote($href, '#') . '"#', '<a href="' . $href . '" aria-current="page"', $header, 1);
+    };
+    $request = request();
     if ($path === '/analyses' || str_starts_with($path, '/article/')) {
-        return str_replace('<a href="/analyses">Les Notes</a>', '<a href="/analyses" class="is-active" aria-current="page">Les Notes</a>', $header);
-    }
-    if ($path === '/invites-et-experts') {
-        return str_replace('<a href="#experts">Experts</a>', '<a href="#experts" class="is-active" aria-current="page">Experts</a>', $header);
-    }
-    if (preg_match('#^/thematique/([a-z0-9-]+)$#', $path, $match)) {
-        $header = str_replace('<summary>Thématiques</summary>', '<summary class="is-active">Thématiques</summary>', $header);
-        return str_replace('<a href="/thematique/' . $match[1] . '"', '<a href="/thematique/' . $match[1] . '" aria-current="page"', $header);
+        $country = $request->q('pays');
+        if ($path === '/analyses' && $country !== '' && str_contains($header, 'href="/analyses?pays=' . q($country) . '"')) {
+            $current('Régions', '/analyses?pays=' . q($country));
+        } else {
+            $current('Les Notes', $path === '/analyses' && $request->q('archives') === '1' ? '/analyses?archives=1' : '/analyses');
+        }
+    } elseif ($path === '/invites-et-experts') {
+        $current('Experts', '/invites-et-experts');
+    } elseif (preg_match('#^/thematique/([a-z0-9-]+)$#', $path, $match)) {
+        $current('Thématiques', '/thematique/' . $match[1]);
     }
     return $header;
+}
+
+/** Sous-menu « Régions » : pays traités par les articles publiés, chacun menant à la liste filtrée. */
+function regions_menu(Db $db): string
+{
+    $links = '';
+    foreach (published_countries($db) as $country => $total) {
+        $links .= '<a href="/analyses?pays=' . q((string) $country) . '">' . esc((string) $country) . ' <small>' . (int) $total . '</small></a>';
+    }
+    return '<div id="regions-menu" class="regions-menu">' . $links . '</div>';
 }
 
 /** En-tête et pied de page de l'accueil (index.html), réutilisés sur toutes les pages publiques. */
@@ -223,6 +237,7 @@ function site_chrome(array $themes): array
     $footer = substr($page, $footerStart, $footerEnd - $footerStart);
     $footer = site_links($footer);
     $header = str_replace('<div id="themes-menu"></div>', '<div id="themes-menu">' . theme_links($themes) . '</div>', $header);
+    $header = str_replace('<div id="regions-menu"></div>', regions_menu(db()), $header);
     $header = mark_active_nav(site_links($header), request()->path);
     $parts = [];
     foreach ([$header, $footer] as $part) {
@@ -257,20 +272,20 @@ function article_date(array $article): string
     return (string) (($article['published_at'] ?? '') ?: $article['created_at']);
 }
 
+/** Article à la une : image, titre, auteur et date (sans chapô, comme les autres titres de l'accueil). */
 function public_featured_article(array $article): string
 {
     $image = $article['featured_image'] ? '<img class="featured-image" src="' . esc($article['featured_image']) . '" alt="Image mise en avant de ' . esc($article['title']) . '">' : '<span class="featured-image-placeholder">I·D</span>';
     $date = long_date(article_date($article), $article['display_language'] ?? 'fr');
     $href = '/article/' . q($article['slug']);
-    return '<article class="featured-article" lang="' . esc(content_lang($article)) . '"><a href="' . $href . '" class="image-link">' . $image . '</a><h1><a href="' . $href . '">' . esc($article['title']) . '</a></h1><p class="featured-author">' . esc($article['author']) . '</p><p>' . esc($article['excerpt']) . ' <time class="mk-date">' . esc($date) . '</time></p></article>';
+    return '<article class="featured-article" lang="' . esc(content_lang($article)) . '"><a href="' . $href . '" class="image-link">' . $image . '</a><h1><a href="' . $href . '">' . esc($article['title']) . '</a></h1><p class="featured-author">' . esc($article['author']) . ' <time class="mk-date">' . esc($date) . '</time></p></article>';
 }
 
+/** Titre d'une analyse dans la colonne de droite de l'accueil (titre, auteur, date). */
 function public_analysis_article(array $article): string
 {
-    $image = $article['featured_image'] ? '<img src="' . esc($article['featured_image']) . '" alt="Image mise en avant de ' . esc($article['title']) . '" loading="lazy">' : '<span class="analysis-image-placeholder">I·D</span>';
     $date = long_date(article_date($article), $article['display_language'] ?? 'fr');
-    $href = '/article/' . q($article['slug']);
-    return '<article class="analysis-item" lang="' . esc(content_lang($article)) . '"><a href="' . $href . '" tabindex="-1">' . $image . '</a><div><h3><a href="' . $href . '">' . esc($article['title']) . '</a> <span class="analysis-author">' . esc($article['author']) . '</span></h3><p class="clamp-3">' . esc($article['excerpt']) . '</p><time class="mk-date">' . esc($date) . '</time></div></article>';
+    return '<li class="analysis-item" lang="' . esc(content_lang($article)) . '"><a href="/article/' . q($article['slug']) . '">' . esc($article['title']) . '</a><span class="analysis-author">' . esc($article['author']) . '</span><time class="mk-date">' . esc($date) . '</time></li>';
 }
 
 function public_news_event_card(array $item, bool $clamp = true): string
@@ -300,38 +315,44 @@ function sort_by_name(array $rows): array
     return $rows;
 }
 
-/** Bloc « Actualités / Événements » de l'accueil : carrousel manuel dès qu'il y a plus d'un élément. */
+/** Bloc « Actualités / Événements » de l'accueil : liste de titres, avec la date et le lieu. */
 function home_news_block(array $items): string
 {
     if (!$items) {
         return '<p class="public-empty-analysis" data-empty="events"></p>';
     }
-    $cards = implode('', array_map(fn($item) => public_news_event_card($item), $items));
-    if (count($items) === 1) {
-        return $cards;
+    $list = '';
+    foreach ($items as $item) {
+        $label = $item['kind'] === 'event' ? 'Événement' : 'Actualité';
+        $date = (string) ($item['starts_at'] ?: $item['created_at']);
+        $meta = '<span class="event-kind">' . $label . '</span>' . ($date !== '' ? '<time>' . esc(long_date($date, $item['display_language'] ?? 'fr')) . '</time>' : '') . ($item['location'] ? '<span>' . esc($item['location']) . '</span>' : '');
+        $list .= '<li class="event-entry" lang="' . esc(content_lang($item)) . '"><a href="/actualite/' . q($item['slug']) . '">' . esc($item['title']) . '</a><div class="event-meta">' . $meta . '</div></li>';
     }
-    return '<div class="news-carousel" data-carousel aria-roledescription="carrousel"><div class="news-track" tabindex="0" role="region" aria-label="Actualités et événements">' . $cards . '</div></div>';
+    return '<ul class="home-news-list">' . $list . '</ul>';
 }
 
 function public_home(): void
 {
     $db = db();
     $language = selected_language($db);
-    $articles = $db->all("SELECT * FROM articles WHERE status='published' ORDER BY published_at DESC NULLS LAST, created_at DESC, id LIMIT 5");
+    // Article à la une, puis les 12 titres suivants dans la colonne de droite (articles archivés exclus).
+    $articles = $db->all("SELECT * FROM articles WHERE status='published' AND archived=0 ORDER BY published_at DESC NULLS LAST, created_at DESC, id LIMIT 13");
     $newsEvents = $db->all("SELECT * FROM news_events WHERE status='published' ORDER BY CASE WHEN starts_at='' THEN created_at ELSE starts_at END DESC, id DESC LIMIT 4");
-    $articles = translate_records($db, $articles, $language, ['title', 'excerpt']);
-    $newsEvents = translate_records($db, $newsEvents, $language, ['title', 'summary']);
+    $articles = translate_records($db, $articles, $language, ['title']);
+    $newsEvents = translate_records($db, $newsEvents, $language, ['title']);
     $themes = localized_themes($db, $language);
     $page = index_page();
     $featured = $articles ? public_featured_article($articles[0]) : '<div class="public-empty-featured" data-empty="articles"></div>';
     $page = str_replace('<div id="database-featured-article"></div>', $featured, $page);
-    $analysis = implode('', array_map('public_analysis_article', array_slice($articles, 1, 4))) ?: '<p class="public-empty-analysis" data-empty="articles"></p>';
+    $recent = array_slice($articles, 1);
+    $analysis = $recent ? '<ol class="analysis-scroll" tabindex="0" aria-label="Analyses récentes">' . implode('', array_map('public_analysis_article', $recent)) . '</ol>' : '<p class="public-empty-analysis" data-empty="articles"></p>';
     $page = str_replace('<div id="database-analysis-articles"></div>', $analysis, $page);
     $page = str_replace('<div id="database-news-events"></div>', home_news_block($newsEvents), $page);
     $page = (string) preg_replace('/\s*<section class="section editorial-workspace" id="atelier">.*?<\/section>\s*/s', "\n", $page);
     $page = (string) preg_replace('/<dialog class="modal-dialog.*?<\/dialog>\s*/s', '', $page);
     $page = str_replace('href="#atelier"', 'href="/admin"', $page);
     $page = str_replace('<div id="themes-menu"></div>', '<div id="themes-menu">' . theme_links($themes) . '</div>', $page);
+    $page = str_replace('<div id="regions-menu"></div>', regions_menu($db), $page);
     $page = site_links($page);
     // Invité le plus récent et experts enregistrés (avant la traduction des sections fixes, qui les traduit aussi).
     $page = home_people_blocks($db, $page);

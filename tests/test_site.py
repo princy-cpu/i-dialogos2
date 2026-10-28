@@ -26,7 +26,8 @@ def create_article(admin, title: str, status: str = 'published', category: int =
     field, categories = category_field(form)
     fields = [('_csrf', token), ('title', title), ('excerpt', extra.get('excerpt', 'Chapô éàü, 50 %')),
               ('body_html', extra.get('body', '<p>Texte <strong>riche</strong> 😀</p>')), ('author', 'Jean-Claude Mairal'),
-              ('language', 'fr'), ('status', status), (field, categories[category]), ('new_tags', tags), ('comments_enabled', '1')]
+              ('language', 'fr'), ('status', status), (field, categories[category]), ('new_tags', tags), ('comments_enabled', '1'),
+              ('countries', extra.get('countries', ''))]
     response = admin.post('/admin/articles/save', fields, files={'featured_image': ('photo.png', 'image/png', PNG)})
     assert response.status == 303, response.text[:500]
     return query('SELECT id FROM articles WHERE title=%s', (title,))[0]['id']
@@ -205,17 +206,21 @@ def create_event(admin, title: str, kind: str = 'news', summary: str = 'Résumé
 
 
 def card_slugs(html: str) -> list[str]:
-    return re.findall(r'class="public-card-image" href="/article/([^"]+)"', html)
+    return re.findall(r'class="note-title" href="/article/([^"]+)"', html)
 
 
-def test_accueil_quatre_analyses_et_actualites(admin, visitor):
+def test_accueil_en_titres_et_analyses_en_deroule(admin, visitor):
     for number in range(6):
-        create_article(admin, f'Accueil limité {number}')
+        article_id = create_article(admin, f'Accueil limité {number}', excerpt=f'Chapô accueil {number}')
+        query('UPDATE articles SET published_at=%s WHERE id=%s', (f'2032-01-0{number + 1}T10:00:00+00:00', article_id))  # les plus récents
         create_event(admin, f'Actualité accueil {number}')
     page = visitor.get('/').text
-    assert page.count('class="analysis-item"') == 4
-    assert len(re.findall(r'<article class="event-entry"', page)) == 4
-    assert 'data-carousel' in page and 'class="clamp-3"' in page
+    assert 'Accueil limité 5' in page.split('class="featured-article"', 1)[1].split('</article>', 1)[0]  # à la une
+    published = query("SELECT COUNT(*) AS n FROM articles WHERE status='published' AND archived=0")[0]['n']
+    column = page.split('<ol class="analysis-scroll"', 1)[1].split('</ol>', 1)[0]  # colonne de droite à défilement vertical
+    assert column.count('class="analysis-item"') == min(12, published - 1)
+    assert 'Accueil limité 4' in column and 'Chapô accueil' not in page  # titres seuls, sans chapô
+    assert len(re.findall(r'<li class="event-entry"', page)) == 4 and 'data-carousel' not in page
     assert 'href="/analyses"' in page and 'href="/actualites"' in page
     assert 'id="public-feed"' not in page  # le bloc « Les Notes » est remplacé par un lien vers /analyses
 
@@ -295,9 +300,12 @@ def test_articles_similaires_et_navigation(admin, visitor):
 def test_en_tete_logo_don_et_lien_actif(visitor):
     home = visitor.get('/').text
     assert '<a class="logo" href="/"' in home  # le logo ramène en haut de l'accueil
+    assert '<img src="/assets/logo-i-dialogos.png" alt="I-Dialogos, think tank"' in home  # logo officiel (image), pas une réécriture
+    assert '<summary>À propos</summary>' in home and 'À propos de nous' not in home
+    assert home.count('<details name="menu">') == 5  # cinq rubriques dépliantes ; en ouvrir une referme les autres
     assert 'class="donate-button" href="https://exemple.org/don" target="_blank" rel="noopener"' in home
     notes = visitor.get('/analyses').text
-    assert '<a href="/analyses" class="is-active" aria-current="page">Les Notes</a>' in notes
+    assert '<summary class="is-active">Les Notes</summary>' in notes and '<a href="/analyses" aria-current="page">' in notes
     assert 'class="donate-button"' in notes  # même en-tête sur toutes les pages publiques
     theme = visitor.get('/thematique/jeunesse').text
     assert '<summary class="is-active">Thématiques</summary>' in theme
@@ -340,7 +348,7 @@ def test_invites_et_experts_contenu_fixe_tant_que_la_base_est_vide(visitor):
     assert 'Oumou Sall Seck' in guest_section(home) and 'Giuseppe GILIBERTI' in expert_track(home)
     page = visitor.get('/invites-et-experts')
     assert page.status == 200 and 'Oumou Sall Seck' in page.text and 'Giuseppe GILIBERTI' in page.text
-    assert '<a href="/#experts" class="is-active" aria-current="page">Experts</a>' in page.text
+    assert '<summary class="is-active">Experts</summary>' in page.text and 'href="/invites-et-experts" aria-current="page"' in page.text
     assert visitor.get('/admin/experts').location.endswith('/admin/login')  # administration protégée
 
 
@@ -518,6 +526,45 @@ def test_commentaires_messages_antispam_et_moderation(admin, visitor):
     approved = visitor.get(f'/article/{slug}').text
     assert 'Commentaires (1)' in approved and 'Commentaire &lt;b&gt;0&lt;/b&gt;' in approved  # affiché, échappé
     query('DELETE FROM rate_events')
+
+
+# --- Retours du client : pays, archives, recherche par auteur, thème, pays et date ---------------------------------
+
+def test_pays_archives_et_filtres_des_notes(admin, visitor):
+    niger = create_article(admin, 'Paysfiltre Sahel', countries='Niger, france')
+    create_article(admin, 'Paysfiltre Paris', countries='France')
+    old = create_article(admin, 'Paysfiltre ancien', countries='niger')
+    query("UPDATE articles SET author='Abdoulahi ATTAYOUB', published_at='2019-05-02T10:00:00+00:00' WHERE id=%s", (old,))
+    assert query('SELECT country FROM article_countries WHERE article_id=%s ORDER BY country', (niger,)) == [{'country': 'France'}, {'country': 'Niger'}]
+    assert query('SELECT country FROM article_countries WHERE article_id=%s', (old,)) == [{'country': 'Niger'}]  # orthographe existante reprise
+    by_country = visitor.get('/analyses?pays=Niger&q=Paysfiltre').text
+    assert 'Paysfiltre Sahel' in by_country and 'Paysfiltre ancien' in by_country and 'Paysfiltre Paris' not in by_country
+    assert 'France, Niger' in by_country  # pays affichés sous le titre
+    assert 'Paysfiltre ancien' in visitor.get('/analyses?annee=2019&q=Paysfiltre').text
+    assert 'Paysfiltre Sahel' not in visitor.get('/analyses?annee=2019&q=Paysfiltre').text
+    by_author = visitor.get('/analyses?auteur=Abdoulahi+ATTAYOUB').text
+    assert 'Paysfiltre ancien' in by_author and 'Paysfiltre Sahel' not in by_author
+    home = visitor.get('/').text
+    assert 'href="/analyses?pays=Niger"' in home  # menu « Régions » : pays des articles publiés
+    assert '<summary class="is-active">Régions</summary>' in visitor.get('/analyses?pays=Niger').text
+
+    # Rangement groupé dans les archives : l'article quitte l'accueil et la sélection, mais reste trouvable.
+    token = admin.csrf('/admin/articles')
+    response = admin.post('/admin/articles/bulk', [('_csrf', token), ('action', 'archive'), ('ids[]', old), ('ids[]', niger), ('back', '/admin/articles?q=Paysfiltre')])
+    assert response.location == '/admin/articles?q=Paysfiltre&ranges=2'
+    assert '2 article(s) mis à jour.' in admin.get(response.location).text
+    assert 'Paysfiltre Sahel' not in visitor.get('/').text
+    selection = visitor.get('/analyses?q=Paysfiltre').text
+    assert 'Paysfiltre Paris' in selection and 'Paysfiltre Sahel' not in selection
+    assert re.search(r'Archives</span> <small>2</small>', selection)  # l'onglet annonce les résultats rangés
+    archives = visitor.get('/analyses?q=Paysfiltre&archives=1').text
+    assert 'Paysfiltre Sahel' in archives and 'Paysfiltre ancien' in archives and 'Paysfiltre Paris' not in archives
+    assert visitor.get(f'/article/{article_slug(old)}').status == 200  # un article archivé reste en ligne
+    assert 'Paysfiltre ancien' in admin.get('/admin/articles?rangement=archives&q=Paysfiltre').text
+    admin.post('/admin/articles/bulk', [('_csrf', token), ('action', 'unarchive'), ('ids[]', niger)])
+    assert 'Paysfiltre Sahel' in visitor.get('/analyses?q=Paysfiltre').text
+    edit = admin.get(f'/admin/articles/{old}/edit').text
+    assert 'name="archived" value="1" checked' in edit and 'value="Niger"' in edit
 
 
 # --- Lot 6 : utilisateurs, rôles, listes de l'espace adhérent ---------------------------------------------------------

@@ -183,6 +183,13 @@ const MIGRATIONS = [
         'ALTER TABLE articles ADD COLUMN IF NOT EXISTS owner_id BIGINT REFERENCES users(id) ON DELETE SET NULL',
         'CREATE INDEX IF NOT EXISTS articles_owner ON articles (owner_id)',
     ]],
+    6 => ['Pays des articles et rangement dans les archives', [
+        // Un article peut concerner plusieurs pays (ex. « Lyon-Niger » : France et Niger).
+        'CREATE TABLE IF NOT EXISTS article_countries (article_id TEXT NOT NULL REFERENCES articles(id) ON DELETE CASCADE, country TEXT NOT NULL, PRIMARY KEY (article_id, country))',
+        'CREATE INDEX IF NOT EXISTS article_countries_country ON article_countries (country)',
+        // archived = 1 : article rangé dans les archives (toujours en ligne, retiré de l'accueil et de la sélection).
+        'ALTER TABLE articles ADD COLUMN IF NOT EXISTS archived INTEGER NOT NULL DEFAULT 0',
+    ]],
 ];
 
 function latest_migration(): int
