@@ -2,7 +2,7 @@
 /** Requête, réponse, session, protection contre la falsification de formulaires (jeton CSRF). */
 declare(strict_types=1);
 
-const HEAD_ASSETS = '<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' viewBox=\'0 0 64 64\'%3E%3Crect width=\'64\' height=\'64\' rx=\'14\' fill=\'%231f6b3c\'/%3E%3Ctext x=\'32\' y=\'43\' font-family=\'Arial\' font-weight=\'700\' font-size=\'28\' text-anchor=\'middle\' fill=\'white\'%3EI%C2%B7D%3C/text%3E%3C/svg%3E"><link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Playfair+Display:ital,wght@0,500;0,600;0,700;1,500&display=swap" rel="stylesheet">';
+const HEAD_ASSETS = '<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' viewBox=\'0 0 64 64\'%3E%3Crect width=\'64\' height=\'64\' rx=\'14\' fill=\'%231f6b3c\'/%3E%3Ctext x=\'32\' y=\'43\' font-family=\'Arial\' font-weight=\'700\' font-size=\'28\' text-anchor=\'middle\' fill=\'white\'%3EI%C2%B7D%3C/text%3E%3C/svg%3E"><link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Playfair+Display:ital,wght@0,500;0,600;0,700;1,500&family=Lora:ital,wght@1,400;1,500&display=swap" rel="stylesheet">';
 const CSP = "default-src 'self'; img-src 'self' https: data:; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; script-src 'self'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'";
 
 final class Request

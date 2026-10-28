@@ -278,7 +278,7 @@ function route_post(string $path): void
         '/admin/categories' => fn() => taxonomy_post('categories', false), '/admin/categories/delete' => fn() => taxonomy_post('categories', true),
         '/admin/tags' => fn() => taxonomy_post('tags', false), '/admin/tags/delete' => fn() => taxonomy_post('tags', true),
         '/admin/templates' => 'templates_post', '/admin/languages' => 'languages_post', '/admin/newsletter/process' => 'newsletter_admin_process',
-        '/admin/users/save' => 'save_user', '/admin/profile' => 'save_profile'];
+        '/admin/users/save' => 'save_user', '/admin/articles/bulk' => 'bulk_articles', '/admin/profile' => 'save_profile'];
     if (isset($routes[$path])) {
         $routes[$path]();
     } elseif (count($segments) === 4 && $segments[1] === 'events' && $segments[3] === 'delete') {

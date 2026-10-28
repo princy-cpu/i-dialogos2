@@ -48,7 +48,7 @@ function admin_page(string $title, string $content, string $active = ''): string
     }
     $user = $session ? '<a class="admin-user" href="/admin/profile"><span class="admin-avatar" aria-hidden="true">' . esc(mb_strtoupper(mb_substr($session['display_name'] ?: $session['username'], 0, 1))) . '</span><span>' . esc($session['display_name'] ?: $session['username']) . '<small>' . esc(ROLES[$role] ?? '') . '</small></span></a>' : '';
     $logout = $session ? '<form method="post" action="/admin/logout">' . csrf_field() . '<button class="nav-logout">Déconnexion</button></form>' : '';
-    $shell = '<header class="admin-topbar"><a class="admin-brand" href="/">I<span>·</span>Dialogos <small>Espace adhérent</small></a><div><a href="/" class="view-site">Voir le site ↗</a><select id="language-select" class="language-select" aria-label="Choisir la langue"></select>' . $user . $logout . '</div></header><div class="admin-layout"><aside class="admin-sidebar"><nav aria-label="Espace adhérent">' . $nav . '</nav></aside>' . $content . '</div>';
+    $shell = '<header class="admin-topbar"><a class="admin-brand" href="/"><img src="/assets/logo-i-dialogos.png" alt="I-Dialogos, think tank" width="258" height="69"> <small>Espace adhérent</small></a><div><a href="/" class="view-site">Voir le site ↗</a><select id="language-select" class="language-select" aria-label="Choisir la langue"></select>' . $user . $logout . '</div></header><div class="admin-layout"><aside class="admin-sidebar"><nav aria-label="Espace adhérent">' . $nav . '</nav></aside>' . $content . '</div>';
     return site_page($title, $shell);
 }
 
@@ -63,7 +63,7 @@ function setup_page(): void
         redirect('/admin/login');
         return;
     }
-    $body = '<main class="auth-wrap"><a class="admin-brand" href="/">I<span>·</span>Dialogos</a><section class="auth-card"><span class="eyebrow">Première configuration</span><h1>Créer le compte administrateur</h1><p>Ce compte sera le seul à pouvoir administrer le site. Choisissez un mot de passe long et unique.</p><form method="post" action="/admin/setup">' . csrf_field() . '<label>Nom d’utilisateur<input name="username" required minlength="3" maxlength="60" autocomplete="username"></label><label>Mot de passe<input type="password" name="password" required minlength="12" autocomplete="new-password"><small>12 caractères minimum</small></label><label>Confirmer le mot de passe<input type="password" name="confirm" required minlength="12" autocomplete="new-password"></label><button class="primary-button">Créer le compte</button></form></section></main>';
+    $body = '<main class="auth-wrap"><a class="admin-brand" href="/"><img src="/assets/logo-i-dialogos.png" alt="I-Dialogos, think tank" width="258" height="69"></a><section class="auth-card"><span class="eyebrow">Première configuration</span><h1>Créer le compte administrateur</h1><p>Ce compte sera le seul à pouvoir administrer le site. Choisissez un mot de passe long et unique.</p><form method="post" action="/admin/setup">' . csrf_field() . '<label>Nom d’utilisateur<input name="username" required minlength="3" maxlength="60" autocomplete="username"></label><label>Mot de passe<input type="password" name="password" required minlength="12" autocomplete="new-password"><small>12 caractères minimum</small></label><label>Confirmer le mot de passe<input type="password" name="confirm" required minlength="12" autocomplete="new-password"></label><button class="primary-button">Créer le compte</button></form></section></main>';
     send_body(site_page('Configuration administrateur', $body));
 }
 
@@ -105,7 +105,7 @@ function login_page(): void
         'disabled' => '<p class="form-error">Ce compte a été désactivé. Contactez un administrateur d’I-Dialogos.</p>',
         default => '',
     };
-    $body = '<main class="auth-wrap"><a class="admin-brand" href="/">I<span>·</span>Dialogos</a><section class="auth-card"><span class="eyebrow">Espace adhérent</span><h1>Connexion</h1><p>Connectez-vous à votre espace : administration du site, rédaction d’articles ou espace adhérent.</p>' . $error . '<form method="post" action="/admin/login">' . csrf_field() . '<label>Nom d’utilisateur<input name="username" required autocomplete="username"></label><label>Mot de passe<input type="password" name="password" required autocomplete="current-password"></label><button class="primary-button">Se connecter</button></form><a class="back-public" href="/">← Retour au site</a></section></main>';
+    $body = '<main class="auth-wrap"><a class="admin-brand" href="/"><img src="/assets/logo-i-dialogos.png" alt="I-Dialogos, think tank" width="258" height="69"></a><section class="auth-card"><span class="eyebrow">Espace adhérent</span><h1>Connexion</h1><p>Connectez-vous à votre espace : administration du site, rédaction d’articles ou espace adhérent.</p>' . $error . '<form method="post" action="/admin/login">' . csrf_field() . '<label>Nom d’utilisateur<input name="username" required autocomplete="username"></label><label>Mot de passe<input type="password" name="password" required autocomplete="current-password"></label><button class="primary-button">Se connecter</button></form><a class="back-public" href="/">← Retour au site</a></section></main>';
     send_body(site_page('Connexion administrateur', $body));
 }
 
@@ -148,7 +148,9 @@ function admin_article_row(array $article): string
     $taxonomy = implode(', ', array_merge(array_column($cats, 'name'), array_map(fn($row) => '#' . $row['name'], $tags)));
     $status = $article['status'] === 'published' ? 'Publié' : 'Brouillon';
     $view = $article['status'] === 'published' ? '<a href="/article/' . q($article['slug']) . '" target="_blank">Voir</a>' : '';
-    return '<tr><td><strong>' . esc($article['title']) . '</strong><small><code>' . esc(strtoupper($article['language'])) . '</code> ' . esc($taxonomy) . '</small></td><td><span class="status-badge ' . $article['status'] . '">' . $status . '</span></td><td>' . esc($article['author']) . '</td><td>' . esc($article['template_name'] ?: '—') . '</td><td>' . esc(substr($article['updated_at'], 0, 10)) . '</td><td class="table-actions"><a href="/admin/articles/' . q($article['id']) . '/edit">Modifier</a>' . $view . '<form method="post" action="/admin/articles/' . q($article['id']) . '/delete" onsubmit="return confirm(\'Supprimer cet article ?\')">' . csrf_field() . '<button>Supprimer</button></form></td></tr>';
+    $archived = (int) $article['archived'] ? ' <span class="status-badge archived">Archives</span>' : '';
+    $select = '<td class="row-select"><input type="checkbox" name="ids[]" value="' . esc($article['id']) . '" form="bulk-articles" aria-label="Sélectionner « ' . esc($article['title']) . ' »"></td>';
+    return '<tr>' . $select . '<td><strong>' . esc($article['title']) . '</strong>' . $archived . '<small><code>' . esc(strtoupper($article['language'])) . '</code> ' . esc($taxonomy) . '</small></td><td><span class="status-badge ' . $article['status'] . '">' . $status . '</span></td><td>' . esc($article['author']) . '</td><td>' . esc($article['template_name'] ?: '—') . '</td><td>' . esc(substr($article['updated_at'], 0, 10)) . '</td><td class="table-actions"><a href="/admin/articles/' . q($article['id']) . '/edit">Modifier</a>' . $view . '<form method="post" action="/admin/articles/' . q($article['id']) . '/delete" onsubmit="return confirm(\'Supprimer cet article ?\')">' . csrf_field() . '<button>Supprimer</button></form></td></tr>';
 }
 
 /** Tableau de bord : tous les articles pour un administrateur, ses propres articles pour un auteur, l'espace adhérent sinon. */
@@ -180,13 +182,17 @@ function dashboard(string $active = 'home'): void
         $where[] = 'articles.status=?';
         $params[] = $status;
     }
+    $shelf = in_array(request()->q('rangement'), ['selection', 'archives'], true) ? request()->q('rangement') : '';
+    if ($shelf !== '') {
+        $where[] = 'articles.archived=' . ($shelf === 'archives' ? 1 : 0);
+    }
     $condition = implode(' AND ', $where);
     $total = (int) $db->value("SELECT COUNT(*) FROM articles WHERE $condition", $params);
     $page = admin_list_page();
     $articles = $db->all("SELECT articles.*, templates.name AS template_name FROM articles LEFT JOIN templates ON templates.id=articles.template_id WHERE $condition ORDER BY updated_at DESC, articles.id LIMIT ? OFFSET ?",
         [...$params, ADMIN_PAGE_SIZE, ($page - 1) * ADMIN_PAGE_SIZE]);
-    $empty = $search !== '' || $status !== '' ? 'Aucun article ne correspond à cette recherche.' : 'Aucun article. Créez votre première publication.';
-    $rows = implode('', array_map('admin_article_row', $articles)) ?: '<tr><td colspan="6">' . $empty . '</td></tr>';
+    $empty = $search !== '' || $status !== '' || $shelf !== '' ? 'Aucun article ne correspond à cette recherche.' : 'Aucun article. Créez votre première publication.';
+    $rows = implode('', array_map('admin_article_row', $articles)) ?: '<tr><td colspan="7">' . $empty . '</td></tr>';
     $stats = '<div><strong>' . $published . '</strong><span>Publiés</span></div><div><strong>' . $drafts . '</strong><span>Brouillons</span></div>';
     if (is_admin()) {
         $pending = (int) $db->value("SELECT COUNT(*) FROM comments WHERE status='pending'");
@@ -198,9 +204,16 @@ function dashboard(string $active = 'home'): void
         $statusOptions .= '<option value="' . $key . '"' . ($key === $status ? ' selected' : '') . '>' . $label . '</option>';
     }
     $base = $active === 'articles' ? '/admin/articles' : '/admin';
-    $filters = admin_search_form($base, $search, 'Titre, auteur ou résumé', '<label class="admin-filter-select">État <select name="etat">' . $statusOptions . '</select></label>');
+    $shelfOptions = '';
+    foreach (['' => 'Sélection et archives', 'selection' => 'Sélection', 'archives' => 'Archives'] as $key => $label) {
+        $shelfOptions .= '<option value="' . $key . '"' . ($key === $shelf ? ' selected' : '') . '>' . $label . '</option>';
+    }
+    $filters = admin_search_form($base, $search, 'Titre, auteur ou résumé', '<label class="admin-filter-select">État <select name="etat">' . $statusOptions . '</select></label><label class="admin-filter-select">Rangement <select name="rangement">' . $shelfOptions . '</select></label>');
+    // Rangement groupé : les cases des lignes sont reliées à ce formulaire (attribut form), placé hors du tableau.
+    $bulk = '<form id="bulk-articles" class="bulk-bar" method="post" action="/admin/articles/bulk">' . csrf_field() . '<input type="hidden" name="back" value="' . esc(request()->path . (request()->queryString !== '' ? '?' . request()->queryString : '')) . '"><span class="bulk-count" data-bulk-count>0 article sélectionné</span><label class="admin-filter-select"><span class="sr-only">Action</span><select name="action"><option value="archive">Ranger dans les archives</option><option value="unarchive">Remettre dans la sélection</option></select></label><button class="plain-button" type="submit">Appliquer</button></form>';
+    $notice = request()->q('ranges') !== '' ? '<p class="success-message" role="status">' . (int) request()->q('ranges') . ' article(s) mis à jour.</p>' : '';
     $intro = is_admin() ? 'Gérez les articles et leur publication.' : 'Rédigez et publiez vos articles. Vous ne voyez ici que les vôtres.';
-    $content = '<main class="admin-main"><div class="admin-title-row"><div><span class="eyebrow">Bonjour ' . esc($session['display_name'] ?: $session['username']) . '</span><h1>' . ($active === 'articles' ? 'Articles' : 'Tableau de bord') . '</h1><p>' . $intro . '</p></div><a class="primary-button" href="/admin/articles/new">+ Nouvel article</a></div><div class="admin-stats">' . $stats . '</div><section class="admin-panel"><div class="panel-heading"><h2>' . (is_admin() ? 'Articles' : 'Mes articles') . ' <small>(' . $total . ')</small></h2></div>' . $filters . '<div class="admin-table-wrap"><table><thead><tr><th>Titre</th><th>État</th><th>Auteur</th><th>Modèle</th><th>Dernière modification</th><th>Actions</th></tr></thead><tbody id="admin-articles">' . $rows . '</tbody></table></div>' . admin_pagination($base, ['q' => $search, 'etat' => $status], $page, $total) . '</section></main>';
+    $content = '<main class="admin-main"><div class="admin-title-row"><div><span class="eyebrow">Bonjour ' . esc($session['display_name'] ?: $session['username']) . '</span><h1>' . ($active === 'articles' ? 'Articles' : 'Tableau de bord') . '</h1><p>' . $intro . '</p></div><a class="primary-button" href="/admin/articles/new">+ Nouvel article</a></div><div class="admin-stats">' . $stats . '</div><section class="admin-panel"><div class="panel-heading"><h2>' . (is_admin() ? 'Articles' : 'Mes articles') . ' <small>(' . $total . ')</small></h2></div>' . $notice . $filters . $bulk . '<div class="admin-table-wrap"><table><thead><tr><th class="row-select"><input type="checkbox" data-select-all aria-label="Tout sélectionner"></th><th>Titre</th><th>État</th><th>Auteur</th><th>Modèle</th><th>Dernière modification</th><th>Actions</th></tr></thead><tbody id="admin-articles">' . $rows . '</tbody></table></div>' . admin_pagination($base, ['q' => $search, 'etat' => $status, 'rangement' => $shelf], $page, $total) . '</section></main>';
     send_body(admin_page($active === 'articles' ? 'Articles' : 'Tableau de bord', $content, $active));
 }
 
@@ -483,6 +496,12 @@ function article_form(?string $articleId = null, string $error = ''): void
     $title = $article['title'] ?? '';
     $image = $article['featured_image'] ?? '';
     $commentsEnabled = $article ? (int) $article['comments_enabled'] : 1;
+    $countries = $article ? implode(', ', article_countries($db, $article['id'])) : '';
+    $knownCountries = '';
+    foreach (all_countries($db) as $country) {
+        $knownCountries .= '<option value="' . esc($country) . '">';
+    }
+    $archived = $article && (int) $article['archived'];
     $errorHtml = $error !== '' ? '<div class="form-error">' . esc($error) . '</div>' : '';
     $imageHtml = $image ? '<img class="featured-preview" src="' . esc($image) . '" alt="Image actuelle">' : '<div class="image-placeholder">Aucune image sélectionnée</div>';
     $toolbar = '<div class="rich-toolbar" role="toolbar" aria-label="Mise en forme du texte"><button type="button" data-command="bold" title="Gras"><b>G</b></button><button type="button" data-command="italic" title="Italique"><i>I</i></button><button type="button" data-command="underline" title="Souligné"><u>S</u></button><button type="button" data-command="strikeThrough" title="Barré"><s>ab</s></button><span></span><select id="font-size" aria-label="Taille de police"><option value="3">Taille normale</option><option value="2">Petite</option><option value="4">Grande</option><option value="5">Très grande</option><option value="6">Titre</option></select><select id="block-format" aria-label="Style de paragraphe"><option value="p">Paragraphe</option><option value="h2">Titre 2</option><option value="h3">Titre 3</option><option value="blockquote">Citation</option></select><button type="button" data-command="insertUnorderedList" title="Liste à puces">• Liste</button><button type="button" data-command="insertOrderedList" title="Liste numérotée">1. Liste</button><button type="button" data-command="justifyLeft" title="Aligner à gauche">≡</button><button type="button" data-command="justifyCenter" title="Centrer">☰</button><button type="button" data-command="justifyRight" title="Aligner à droite">≡</button><label class="color-tool" title="Couleur du texte">A<input id="font-color" type="color" value="#28232e" aria-label="Couleur du texte"></label><button type="button" id="link-tool" title="Insérer un lien">↗</button><button type="button" data-command="removeFormat" title="Effacer la mise en forme">Tx</button></div>';
@@ -492,10 +511,11 @@ function article_form(?string $articleId = null, string $error = ''): void
         . '<div class="article-edit-layout"><div class="article-edit-main"><label class="admin-field">Titre<input name="title" required maxlength="180" value="' . esc($title) . '" placeholder="Titre de l’article"></label>'
         . '<label class="admin-field">Ajouter un contenu' . $toolbar . '<div id="rich-editor" class="rich-editor" contenteditable="true" role="textbox" aria-multiline="true" data-placeholder="Commencez à rédiger votre article…">' . $bodyHtml . '</div><textarea name="body_html" id="body-html" hidden></textarea><small class="field-help">Sélectionnez un passage puis choisissez sa mise en forme. Le texte est nettoyé à l’enregistrement.</small>'
         . '<label class="admin-field excerpt-field">Chapô / résumé<textarea name="excerpt" rows="4" maxlength="500" placeholder="Quelques phrases pour présenter l’article">' . esc($article['excerpt'] ?? '') . '</textarea></label></label></div>'
-        . '<aside class="article-edit-sidebar"><section class="side-panel"><h2>Publication</h2><label class="admin-field">État<select name="status"><option value="draft" ' . selected_attr($status === 'draft') . '>Brouillon</option><option value="published" ' . selected_attr($status === 'published') . '>Publier</option></select></label><label class="admin-field">Auteur/autrice<input name="author" required maxlength="120" value="' . esc($article['author'] ?? ($session['display_name'] ?: $session['username'])) . '"></label><div class="side-actions"><button class="primary-button" type="submit">' . ($article ? 'Enregistrer' : 'Enregistrer l’article') . '</button><a class="plain-button" href="/admin">Annuler</a></div></section>'
+        . '<aside class="article-edit-sidebar"><section class="side-panel"><h2>Publication</h2><label class="admin-field">État<select name="status"><option value="draft" ' . selected_attr($status === 'draft') . '>Brouillon</option><option value="published" ' . selected_attr($status === 'published') . '>Publier</option></select></label><label class="check-option archive-option"><input type="checkbox" name="archived" value="1" ' . ($archived ? 'checked' : '') . '>Ranger dans les archives</label><small class="field-help">Un article archivé reste en ligne et se retrouve par auteur, thème, pays ou date, mais n’apparaît plus sur l’accueil ni dans la sélection.</small><label class="admin-field">Auteur/autrice<input name="author" required maxlength="120" value="' . esc($article['author'] ?? ($session['display_name'] ?: $session['username'])) . '"></label><div class="side-actions"><button class="primary-button" type="submit">' . ($article ? 'Enregistrer' : 'Enregistrer l’article') . '</button><a class="plain-button" href="/admin">Annuler</a></div></section>'
         . translations_panel($languages, $article)
         . '<section class="side-panel"><h2>Image mise en avant</h2>' . $imageHtml . '<label class="admin-field">Choisir une image<input type="file" name="featured_image" accept="image/jpeg,image/png,image/webp,image/gif"></label><small class="field-help">JPG, PNG, WebP ou GIF · 8 Mo maximum.</small></section>'
         . '<section class="side-panel"><h2>Catégories</h2><div class="check-list">' . $catOptions . '</div>' . $manage('/admin/categories', '+ Ajouter une catégorie') . '</section>'
+        . '<section class="side-panel"><h2>Pays</h2><label class="admin-field">Pays concernés<input name="countries" maxlength="300" list="known-countries" value="' . esc($countries) . '" placeholder="Ex. Niger, France"></label><datalist id="known-countries">' . $knownCountries . '</datalist><small class="field-help">Séparés par des virgules. Les visiteurs peuvent retrouver les articles par pays.</small></section>'
         . '<section class="side-panel"><h2>Étiquettes</h2><div class="check-list">' . $tagOptions . '</div><label class="admin-field">Ajouter des étiquettes<input name="new_tags" placeholder="Séparées par des virgules"></label>' . $manage('/admin/tags', 'Gérer toutes les étiquettes') . '</section>'
         . '<section class="side-panel"><h2>Modèle</h2><label class="admin-field">Modèle<select name="template_id">' . $templateOptions . '</select></label>' . $manage('/admin/templates', 'Gérer les modèles') . '</section>'
         . '<section class="side-panel"><h2>Commentaires</h2><label class="check-option"><input type="checkbox" name="comments_enabled" value="1" ' . ($commentsEnabled ? 'checked' : '') . '>Autoriser les commentaires</label>' . $manage('/admin/comments', 'Modérer les commentaires') . '</section></aside></div></form></main>';
@@ -606,15 +626,20 @@ function save_article(): void
         }
         $language = resolve_language($db, $r->form('language', 'auto'), $title, $excerpt, html_to_text($body));
         $comments = $r->form('comments_enabled') !== '' ? 1 : 0;
+        $archived = $r->form('archived') !== '' ? 1 : 0;
         if ($existing) {
-            $db->execute('UPDATE articles SET title=?,slug=?,excerpt=?,body_html=?,featured_image=?,status=?,author=?,template_id=?,comments_enabled=?,updated_at=?,published_at=?,language=? WHERE id=?',
-                [$title, $slug, $excerpt, $body, $imagePath, $status, $author, $templateId, $comments, $now, $publishedAt, $language, $id]);
+            $db->execute('UPDATE articles SET title=?,slug=?,excerpt=?,body_html=?,featured_image=?,status=?,author=?,template_id=?,comments_enabled=?,updated_at=?,published_at=?,language=?,archived=? WHERE id=?',
+                [$title, $slug, $excerpt, $body, $imagePath, $status, $author, $templateId, $comments, $now, $publishedAt, $language, $archived, $id]);
         } else {
-            $db->execute('INSERT INTO articles(id,title,slug,excerpt,body_html,featured_image,status,author,template_id,comments_enabled,created_at,updated_at,published_at,language,owner_id) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
-                [$id, $title, $slug, $excerpt, $body, $imagePath, $status, $author, $templateId, $comments, $now, $now, $publishedAt, $language, $ownerId]);
+            $db->execute('INSERT INTO articles(id,title,slug,excerpt,body_html,featured_image,status,author,template_id,comments_enabled,created_at,updated_at,published_at,language,owner_id,archived) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
+                [$id, $title, $slug, $excerpt, $body, $imagePath, $status, $author, $templateId, $comments, $now, $now, $publishedAt, $language, $ownerId, $archived]);
         }
         $db->execute('DELETE FROM article_categories WHERE article_id=?', [$id]);
         $db->execute('DELETE FROM article_tags WHERE article_id=?', [$id]);
+        $db->execute('DELETE FROM article_countries WHERE article_id=?', [$id]);
+        foreach (parse_countries($db, $r->form('countries')) as $country) {
+            $db->execute('INSERT OR IGNORE INTO article_countries(article_id,country) VALUES(?,?)', [$id, $country]);
+        }
         foreach ($r->formList('categories') as $rawId) {
             if (ctype_digit($rawId)) {
                 $db->execute('INSERT OR IGNORE INTO article_categories(article_id,category_id) SELECT ?, id FROM categories WHERE id=?', [$id, (int) $rawId]);
@@ -641,6 +666,25 @@ function save_article(): void
         after_response(fn() => pretranslate([$savedId], []));
     }
     redirect('/admin/articles');
+}
+
+/** Rangement groupé : archive ou remet en avant les articles cochés (un auteur n'agit que sur les siens). */
+function bulk_articles(): void
+{
+    $db = db();
+    $archived = request()->form('action') === 'unarchive' ? 0 : 1;
+    $done = 0;
+    foreach (request()->formList('ids') as $id) {
+        $article = $db->one('SELECT id,owner_id FROM articles WHERE id=?', [$id]);
+        if ($article && can_edit_article($article)) {
+            $db->execute('UPDATE articles SET archived=? WHERE id=?', [$archived, $id]);
+            $done++;
+        }
+    }
+    $back = request()->form('back');
+    $back = preg_match('#^/admin(/articles)?(\?[^\s"<>]*)?$#D', $back) ? $back : '/admin/articles';
+    $back = (string) preg_replace('/([?&])ranges=\d+&?/', '$1', $back);
+    redirect(rtrim($back, '?&') . (str_contains($back, '?') ? '&' : '?') . 'ranges=' . $done);
 }
 
 function delete_article(string $articleId): void

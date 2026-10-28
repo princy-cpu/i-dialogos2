@@ -80,3 +80,26 @@ document.querySelectorAll('form[onsubmit]').forEach(form => {
 });
 
 const languageModule = document.createElement('script'); languageModule.src = '/i18n.js'; languageModule.defer = true; document.head.append(languageModule);
+
+// Rangement groupé des articles : « Tout sélectionner » et nombre d'articles cochés.
+const bulkForm = document.querySelector('#bulk-articles');
+if (bulkForm) {
+  const boxes = () => [...document.querySelectorAll('input[name="ids[]"][form="bulk-articles"]')];
+  const counter = bulkForm.querySelector('[data-bulk-count]');
+  const selectAll = document.querySelector('[data-select-all]');
+  const refresh = () => {
+    const checked = boxes().filter(box => box.checked).length;
+    counter.textContent = `${checked} article${checked > 1 ? 's' : ''} sélectionné${checked > 1 ? 's' : ''}`;
+    bulkForm.classList.toggle('has-selection', checked > 0);
+    if (selectAll) selectAll.checked = checked > 0 && checked === boxes().length;
+  };
+  selectAll?.addEventListener('change', () => { boxes().forEach(box => { box.checked = selectAll.checked; }); refresh(); });
+  boxes().forEach(box => box.addEventListener('change', refresh));
+  bulkForm.addEventListener('submit', event => {
+    if (!boxes().some(box => box.checked)) {
+      event.preventDefault();
+      counter.textContent = 'Cochez au moins un article.';
+    }
+  });
+  refresh();
+}

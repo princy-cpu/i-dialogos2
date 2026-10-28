@@ -117,49 +117,110 @@ function list_page_not_found(string $base, array $filters): void
     public_page('Page introuvable', '<main class="article-page list-page"><h1>Page introuvable</h1><p>Cette page de résultats n’existe pas.</p><a class="theme-button" href="' . esc(list_href($base, $filters)) . '">Revenir à la page 1</a></main>', 404);
 }
 
-/** Cartes d'articles (catégories et étiquettes chargées en une fois, titres et chapôs traduits). */
-function article_cards(Db $db, array $articles, string $language): string
+/**
+ * Pays saisis dans l'éditeur (« Niger, France ») : liste nettoyée et sans doublon. Un pays déjà connu garde son
+ * orthographe (« niger » devient « Niger ») pour que le filtre par pays regroupe bien les articles.
+ */
+function parse_countries(Db $db, string $text): array
+{
+    $countries = [];
+    foreach (preg_split('/[,;\n]+/u', $text) ?: [] as $item) {
+        $name = mb_cut(trim((string) preg_replace('/\s+/u', ' ', $item)), 80);
+        if ($name === '') {
+            continue;
+        }
+        $known = $db->value('SELECT country FROM article_countries WHERE lower(country)=lower(?) LIMIT 1', [$name]);
+        $name = $known !== null ? (string) $known : mb_strtoupper(mb_substr($name, 0, 1)) . mb_substr($name, 1);
+        $countries[mb_strtolower($name)] = $name;
+    }
+    return array_values($countries);
+}
+
+function article_countries(Db $db, string $articleId): array
+{
+    return array_column($db->all('SELECT country FROM article_countries WHERE article_id=? ORDER BY country', [$articleId]), 'country');
+}
+
+/** Tous les pays déjà saisis (suggestions de l'éditeur). */
+function all_countries(Db $db): array
+{
+    return array_column($db->all('SELECT DISTINCT country FROM article_countries ORDER BY country'), 'country');
+}
+
+/** Pays des articles publiés, avec leur nombre d'articles (filtre « Pays » et menu « Régions »). */
+function published_countries(Db $db): array
+{
+    return array_column($db->all("SELECT c.country, COUNT(*) AS total FROM article_countries c JOIN articles a ON a.id=c.article_id
+        WHERE a.status='published' GROUP BY c.country ORDER BY c.country"), 'total', 'country');
+}
+
+/** Libellés des pays pour un lot d'articles, en une requête : [id => « Niger, France »]. */
+function countries_by_article(Db $db, array $ids): array
+{
+    $byArticle = [];
+    foreach ($ids ? $db->all('SELECT article_id, country FROM article_countries WHERE article_id = ANY(?) ORDER BY country', [$ids]) : [] as $row) {
+        $byArticle[$row['article_id']][] = $row['country'];
+    }
+    return array_map(fn($list) => implode(', ', $list), $byArticle);
+}
+
+/** Date de référence d'un article en SQL (publication, sinon création). */
+const ARTICLE_DATE_SQL = 'COALESCE(a.published_at, a.created_at)';
+
+/**
+ * Liste de titres (présentation inspirée de Brookings) : thème et date au-dessus, titre, puis auteur et pays.
+ * Pas de chapô ni d'image : la page reste aérée et se parcourt d'un coup d'œil.
+ */
+function note_rows(Db $db, array $articles, string $language): string
 {
     if (!$articles) {
         return '';
     }
     $ids = array_column($articles, 'id');
-    $categoryLinks = $db->all('SELECT ac.article_id, c.id, c.name, c.slug FROM article_categories ac JOIN categories c ON c.id=ac.category_id WHERE ac.article_id = ANY(?) ORDER BY c.name', [$ids]);
-    $tagLinks = $db->all('SELECT t2.article_id, t.id, t.name, t.slug FROM article_tags t2 JOIN tags t ON t.id=t2.tag_id WHERE t2.article_id = ANY(?) ORDER BY t.name', [$ids]);
-    $terms = function (array $links) use ($db, $language): array {
-        $unique = [];
-        foreach ($links as $row) {
-            $unique[$row['id']] = ['id' => $row['id'], 'name' => $row['name'], 'slug' => $row['slug']];
-        }
-        return array_column(localize_terms($db, array_values($unique), $language), null, 'id');
-    };
-    $categoriesById = $terms($categoryLinks);
-    $tagsById = $terms($tagLinks);
-    $byArticle = [];
-    foreach ($categoryLinks as $row) {
-        $byArticle[$row['article_id']]['cats'][] = $categoriesById[$row['id']];
+    $categories = [];
+    foreach ($db->all('SELECT ac.article_id, c.id, c.name, c.slug FROM article_categories ac JOIN categories c ON c.id=ac.category_id WHERE ac.article_id = ANY(?) ORDER BY c.name', [$ids]) as $row) {
+        $categories[$row['article_id']][] = $row;
     }
-    foreach ($tagLinks as $row) {
-        $byArticle[$row['article_id']]['tags'][] = $tagsById[$row['id']];
+    $countries = countries_by_article($db, $ids);
+    $rows = '';
+    foreach (translate_records($db, $articles, $language, ['title']) as $article) {
+        $cats = localize_terms($db, $categories[$article['id']] ?? [], $language);
+        $theme = $cats ? '<a href="/analyses?categorie=' . q($cats[0]['slug']) . '">' . esc($cats[0]['name']) . '</a>' : '<span>Les Notes</span>';
+        $byline = esc($article['author']) . (isset($countries[$article['id']]) ? ' <span class="note-country">' . esc($countries[$article['id']]) . '</span>' : '');
+        $rows .= '<article class="note-row" lang="' . esc(content_lang($article)) . '"><div class="note-meta">' . $theme . '<time>' . esc(long_date(article_date($article), $language)) . '</time></div>'
+            . '<h3><a class="note-title" href="/article/' . q($article['slug']) . '">' . esc($article['title']) . '</a></h3><p class="note-byline">' . $byline . '</p></article>';
     }
-    $cards = '';
-    foreach (translate_records($db, $articles, $language, ['title', 'excerpt']) as $article) {
-        $cards .= public_card($article, $byArticle[$article['id']]['cats'] ?? [], $byArticle[$article['id']]['tags'] ?? []);
-    }
-    return $cards;
+    return $rows;
 }
 
-/** /analyses : tous les articles publiés, 10 par page, filtres par thème, mot-clé, langue et texte. */
+/**
+ * /analyses : articles publiés, 12 par page. Deux onglets : la sélection (mise en avant) et les archives (articles
+ * rangés par l'équipe). Filtres combinables : thème, auteur, pays, année, mot-clé, langue et texte.
+ */
 function public_analyses(): void
 {
     $db = db();
     $language = selected_language($db);
-    $filters = ['categorie' => filter_value('categorie'), 'tag' => filter_value('tag'), 'langue' => filter_value('langue', 10), 'q' => filter_value('q')];
+    $filters = ['categorie' => filter_value('categorie'), 'auteur' => filter_value('auteur', 120), 'pays' => filter_value('pays', 80),
+        'annee' => preg_match('/^\d{4}$/D', request()->q('annee')) ? request()->q('annee') : '', 'tag' => filter_value('tag'),
+        'langue' => filter_value('langue', 10), 'q' => filter_value('q'), 'archives' => request()->q('archives') === '1' ? '1' : ''];
     $where = ["a.status='published'"];
     $params = [];
     if ($filters['categorie'] !== '') {
         $where[] = 'EXISTS (SELECT 1 FROM article_categories ac JOIN categories c ON c.id=ac.category_id WHERE ac.article_id=a.id AND c.slug=?)';
         $params[] = $filters['categorie'];
+    }
+    if ($filters['auteur'] !== '') {
+        $where[] = 'a.author=?';
+        $params[] = $filters['auteur'];
+    }
+    if ($filters['pays'] !== '') {
+        $where[] = 'EXISTS (SELECT 1 FROM article_countries co WHERE co.article_id=a.id AND co.country=?)';
+        $params[] = $filters['pays'];
+    }
+    if ($filters['annee'] !== '') {
+        $where[] = 'substr(' . ARTICLE_DATE_SQL . ', 1, 4)=?';
+        $params[] = $filters['annee'];
     }
     if ($filters['tag'] !== '') {
         $where[] = 'EXISTS (SELECT 1 FROM article_tags at2 JOIN tags t ON t.id=at2.tag_id WHERE at2.article_id=a.id AND t.slug=?)';
@@ -170,30 +231,47 @@ function public_analyses(): void
         $params[] = $filters['langue'];
     }
     if ($filters['q'] !== '') {
-        $where[] = '(a.title ILIKE ? OR a.excerpt ILIKE ?)';
-        array_push($params, like_contains($filters['q']), like_contains($filters['q']));
+        $where[] = '(a.title ILIKE ? OR a.excerpt ILIKE ? OR a.author ILIKE ?)';
+        array_push($params, like_contains($filters['q']), like_contains($filters['q']), like_contains($filters['q']));
     }
     $condition = implode(' AND ', $where);
-    $total = (int) $db->value("SELECT COUNT(*) FROM articles a WHERE $condition", $params);
+    // Effectif de chaque onglet pour les mêmes filtres : on voit tout de suite si les archives contiennent des résultats.
+    $counts = array_column($db->all("SELECT a.archived, COUNT(*) AS total FROM articles a WHERE $condition GROUP BY a.archived", $params), 'total', 'archived');
+    $archives = $filters['archives'] === '1';
+    $total = (int) ($counts[$archives ? 1 : 0] ?? 0);
     $pages = max(1, (int) ceil($total / ANALYSES_PAGE_SIZE));
     $page = requested_page();
     if ($page > $pages) {
         list_page_not_found('/analyses', $filters);
         return;
     }
-    $articles = $db->all("SELECT a.* FROM articles a WHERE $condition ORDER BY a.published_at DESC NULLS LAST, a.created_at DESC, a.id LIMIT ? OFFSET ?",
-        [...$params, ANALYSES_PAGE_SIZE, ($page - 1) * ANALYSES_PAGE_SIZE]);
+    $articles = $db->all("SELECT a.* FROM articles a WHERE $condition AND a.archived=? ORDER BY " . ARTICLE_DATE_SQL . " DESC, a.id LIMIT ? OFFSET ?",
+        [...$params, $archives ? 1 : 0, ANALYSES_PAGE_SIZE, ($page - 1) * ANALYSES_PAGE_SIZE]);
     $termOptions = function (string $table) use ($db, $language): array {
         $rows = sort_by_name(localize_terms($db, $db->all("SELECT id,name,slug FROM $table ORDER BY name"), $language));
         return array_column($rows, 'name', 'slug');
     };
+    $authors = array_column($db->all("SELECT DISTINCT author FROM articles WHERE status='published' AND author<>'' ORDER BY author"), 'author', 'author');
+    $countries = array_keys(published_countries($db));
+    $years = array_column($db->all("SELECT DISTINCT substr(COALESCE(published_at, created_at), 1, 4) AS year FROM articles WHERE status='published' ORDER BY year DESC"), 'year', 'year');
     $controls = filter_select('categorie', 'Thème', 'Tous les thèmes', $termOptions('categories'), $filters['categorie'])
+        . filter_select('auteur', 'Auteur', 'Tous les auteurs', $authors, $filters['auteur'])
+        . filter_select('pays', 'Pays', 'Tous les pays', array_combine($countries, $countries) ?: [], $filters['pays'])
+        . filter_select('annee', 'Année', 'Toutes les années', $years, $filters['annee'])
         . filter_select('tag', 'Mot-clé', 'Tous les mots-clés', $termOptions('tags'), $filters['tag'])
-        . filter_select('langue', 'Langue', 'Toutes les langues', published_languages($db, 'articles'), $filters['langue']);
-    $results = $articles ? '<div class="public-article-grid list-grid">' . article_cards($db, $articles, $language) . '</div>' : list_empty('/analyses');
-    $body = '<main class="list-page"><div class="section-heading"><span class="eyebrow">Les Notes d’I-Dialogos</span><h1>Analyses et articles</h1><p>Des idées, des analyses et des propositions portées par notre réseau.</p></div>'
-        . filters_form('/analyses', $controls, $filters) . list_count($total) . $results . pagination_nav('/analyses', $filters, $page, $pages) . '</main>';
-    public_page('Analyses et articles' . ($page > 1 ? " – page $page" : ''), $body);
+        . filter_select('langue', 'Langue', 'Toutes les langues', published_languages($db, 'articles'), $filters['langue'])
+        . ($archives ? '<input type="hidden" name="archives" value="1">' : '');
+    $tab = function (bool $isArchives, string $label) use ($filters, $archives, $counts): string {
+        $href = list_href('/analyses', ['archives' => $isArchives ? '1' : ''] + $filters);
+        $current = $isArchives === $archives ? ' aria-current="page" class="is-current"' : '';
+        return '<a href="' . esc($href) . '"' . $current . '><span>' . $label . '</span> <small>' . (int) ($counts[$isArchives ? 1 : 0] ?? 0) . '</small></a>';
+    };
+    $tabs = '<nav class="notes-tabs" aria-label="Sélection ou archives">' . $tab(false, 'Sélection') . $tab(true, 'Archives') . '</nav>';
+    $results = $articles ? '<div class="note-list">' . note_rows($db, $articles, $language) . '</div>' : list_empty('/analyses');
+    $intro = $archives ? 'Les Notes plus anciennes, rangées par l’équipe : retrouvez-les par auteur, thème, pays ou date.' : 'Des idées, des analyses et des propositions portées par notre réseau.';
+    $body = '<main class="list-page notes-page"><div class="section-heading"><span class="eyebrow">Les Notes d’I-Dialogos</span><h1>' . ($archives ? 'Archives des Notes' : 'Analyses et articles') . '</h1><p>' . $intro . '</p></div>'
+        . $tabs . '<div id="filtres">' . filters_form('/analyses', $controls, $filters) . '</div>' . list_count($total) . $results . pagination_nav('/analyses', $filters, $page, $pages) . '</main>';
+    public_page(($archives ? 'Archives des Notes' : 'Analyses et articles') . ($page > 1 ? " – page $page" : ''), $body);
 }
 
 /** /actualites : actualités et événements publiés, 10 par page, filtres par type, langue et texte. */

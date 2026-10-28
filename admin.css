@@ -91,3 +91,16 @@ a.admin-user{display:flex}
 }
 @media(max-width:700px){.admin-brand small,.view-site{display:none}.admin-topbar{min-height:56px}.admin-topbar>div{gap:10px}}
 @media(max-width:700px){.admin-main{min-height:calc(100vh - 110px)}}
+/* Rangement groupé des articles (sélection / archives). */
+.row-select{width:34px}
+.row-select input{width:17px;height:17px;accent-color:var(--admin-green)}
+.bulk-bar{display:flex;flex-wrap:wrap;align-items:center;gap:10px;margin:0 0 14px;padding:10px 12px;border:1px dashed #cfdad2;border-radius:10px;font-size:13px;color:#5d6a61}
+.bulk-bar.has-selection{border-style:solid;border-color:#9cc6a6;background:#f3f9f4;color:var(--admin-text)}
+.bulk-count{font-weight:700;margin-right:auto}
+.status-badge.archived{color:#5f5966;background:#efedf0;margin-left:6px}
+.archive-option{margin-top:10px}
+/* Logo officiel (image) dans l'espace adhérent. */
+.admin-brand{display:inline-flex;align-items:center;gap:10px;line-height:1}
+.admin-brand img{display:block;width:150px;height:auto}
+.auth-wrap>.admin-brand img{width:220px}
+@media(max-width:700px){.admin-brand img{width:120px}}
