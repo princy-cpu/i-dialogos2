@@ -24,7 +24,7 @@ const ADMIN_NAV = [
         ['Catégories', '/admin/categories', 'categories', '▤'], ['Étiquettes', '/admin/tags', 'tags', '#'], ['Modèles', '/admin/templates', 'templates', '❒']],
     'Réseau' => [['Invités de la semaine', '/admin/invites', 'invites', '★'], ['Experts', '/admin/experts', 'experts', '◎']],
     'Diffusion' => [['Newsletter', '/admin/newsletter', 'newsletter', '✉']],
-    'Configuration' => [['Utilisateurs', '/admin/users', 'users', '👥'], ['Langues', '/admin/languages', 'languages', '⚑']],
+    'Configuration' => [['Page d’accueil', '/admin/accueil', 'accueil', '⌂'], ['Utilisateurs', '/admin/users', 'users', '👥'], ['Langues', '/admin/languages', 'languages', '⚑']],
     'Mon espace' => [['Mon profil', '/admin/profile', 'profile', '☺'], ['Messagerie', '/admin/messages', 'messages', '✆']],
 ];
 

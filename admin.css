@@ -104,3 +104,7 @@ a.admin-user{display:flex}
 .admin-brand img{display:block;width:150px;height:auto}
 .auth-wrap>.admin-brand img{width:220px}
 @media(max-width:700px){.admin-brand img{width:120px}}
+/* Page d'accueil : cases à cocher des éléments affichés. */
+.home-parts{grid-template-columns:repeat(5,minmax(0,auto));justify-content:start;column-gap:28px}
+.home-parts .check-option{font-size:14px;padding-bottom:0}
+@media(max-width:700px){.home-parts{grid-template-columns:repeat(2,minmax(0,1fr))}}

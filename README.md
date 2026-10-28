@@ -29,6 +29,7 @@ Les tables sont créées automatiquement, puis mises à jour par les migrations 
 | `src/front.php` | point d'entrée et aiguillage des adresses |
 | `src/public_pages.php` | accueil, thématiques, articles, actualités, commentaires |
 | `src/admin_pages.php` | administration |
+| `src/home_settings.php` | réglages de la page d’accueil (`/admin/accueil`) |
 | `src/translation.php` | détection de langue et traduction automatique (avec cache en base) |
 | `src/db.php` | connexion PostgreSQL, structure de la base et migrations |
 | `src/html.php`, `src/http.php` | nettoyage du HTML, sessions, sécurité des formulaires |
@@ -83,6 +84,14 @@ La page d’accueil suit les maquettes du dossier `PAGES Site 13.10.26`, dans l�
 15. Nos soutiens et partenaires
 16. Nos grandes inspirations
 17. Clôture : inscription à l’InfoLettre
+
+Les administrateurs règlent l’accueil depuis **Configuration › Page d’accueil** (`/admin/accueil`). Cette page permet de :
+
+- choisir l’article à la une (par défaut, le plus récent) ;
+- fixer le nombre d’analyses de la colonne de droite (de 1 à 24) ;
+- afficher ou masquer, séparément pour l’article à la une et pour la colonne, l’image, le titre, l’auteur, l’extrait de texte et la date.
+
+Un titre masqué reste lu par les lecteurs d’écran. Le bouton « Revenir à la présentation de la maquette » rétablit les réglages d’origine. Les réglages sont enregistrés dans la table `site_settings` (migration 7).
 
 La liste des articles (« Les Notes ») est placée entre les thématiques et les experts. Chaque thématique a sa page `/thematique/<identifiant>` avec les articles publiés de la catégorie associée ; les textes et la correspondance avec les catégories sont définis dans la liste `THEMES` de `server.py`. Les images des sections viennent des maquettes, découpées dans `assets/` (logos des partenaires dans `assets/partners/`).
 

@@ -190,6 +190,10 @@ const MIGRATIONS = [
         // archived = 1 : article rangé dans les archives (toujours en ligne, retiré de l'accueil et de la sélection).
         'ALTER TABLE articles ADD COLUMN IF NOT EXISTS archived INTEGER NOT NULL DEFAULT 0',
     ]],
+    7 => ['Réglages de la page d\'accueil', [
+        // Réglages du site modifiables depuis l'administration, en JSON (clé « home » : voir home_settings.php).
+        'CREATE TABLE IF NOT EXISTS site_settings (name TEXT PRIMARY KEY, value TEXT NOT NULL)',
+    ]],
 ];
 
 function latest_migration(): int

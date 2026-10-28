@@ -33,7 +33,7 @@ SITE_URL = 'https://www.exemple-idialogos.org'
 if not DATABASE_URL.startswith(('postgres://', 'postgresql://')):
     pytest.exit('Indiquez une base PostgreSQL de test dans DATABASE_URL (elle sera vidée).', returncode=2)
 
-TABLES = ['schema_version', 'article_countries', 'mail_queue', 'article_mailings', 'subscribers', 'rate_events', 'people', 'login_attempts', 'sessions', 'translations', 'news_events', 'comments', 'article_tags',
+TABLES = ['schema_version', 'site_settings', 'article_countries', 'mail_queue', 'article_mailings', 'subscribers', 'rate_events', 'people', 'login_attempts', 'sessions', 'translations', 'news_events', 'comments', 'article_tags',
           'article_categories', 'articles', 'tags', 'categories', 'templates', 'languages', 'users']
 
 
