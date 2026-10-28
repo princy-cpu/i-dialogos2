@@ -209,7 +209,7 @@ def card_slugs(html: str) -> list[str]:
     return re.findall(r'class="note-title" href="/article/([^"]+)"', html)
 
 
-def test_accueil_en_titres_et_analyses_en_deroule(admin, visitor):
+def test_accueil_conforme_a_la_maquette(admin, visitor):
     for number in range(6):
         article_id = create_article(admin, f'Accueil limité {number}', excerpt=f'Chapô accueil {number}')
         query('UPDATE articles SET published_at=%s WHERE id=%s', (f'2032-01-0{number + 1}T10:00:00+00:00', article_id))  # les plus récents
@@ -217,10 +217,12 @@ def test_accueil_en_titres_et_analyses_en_deroule(admin, visitor):
     page = visitor.get('/').text
     assert 'Accueil limité 5' in page.split('class="featured-article"', 1)[1].split('</article>', 1)[0]  # à la une
     published = query("SELECT COUNT(*) AS n FROM articles WHERE status='published' AND archived=0")[0]['n']
+    featured = page.split('class="featured-article"', 1)[1].split('</article>', 1)[0]
+    assert 'Chapô accueil 5' in featured and 'class="featured-image"' in featured  # image, titre, auteur, chapô et date
     column = page.split('<ol class="analysis-scroll"', 1)[1].split('</ol>', 1)[0]  # colonne de droite à défilement vertical
     assert column.count('class="analysis-item"') == min(12, published - 1)
-    assert 'Accueil limité 4' in column and 'Chapô accueil' not in page  # titres seuls, sans chapô
-    assert len(re.findall(r'<li class="event-entry"', page)) == 4 and 'data-carousel' not in page
+    assert 'Accueil limité 4' in column and 'Chapô accueil 4' in column and 'class="analysis-thumb"' in column
+    assert page.count('class="home-event"') == 1 and 'Voir plus d’informations</a>' in page  # dernière annonce, comme la maquette
     assert 'href="/analyses"' in page and 'href="/actualites"' in page
     assert 'id="public-feed"' not in page  # le bloc « Les Notes » est remplacé par un lien vers /analyses
 
@@ -305,7 +307,7 @@ def test_en_tete_logo_don_et_lien_actif(visitor):
     assert home.count('<details name="menu">') == 5  # cinq rubriques dépliantes ; en ouvrir une referme les autres
     assert 'class="donate-button" href="https://exemple.org/don" target="_blank" rel="noopener"' in home
     notes = visitor.get('/analyses').text
-    assert '<summary class="is-active">Les Notes</summary>' in notes and '<a href="/analyses" aria-current="page">' in notes
+    assert '<summary class="is-active">les Notes</summary>' in notes and '<a href="/analyses" aria-current="page">' in notes
     assert 'class="donate-button"' in notes  # même en-tête sur toutes les pages publiques
     theme = visitor.get('/thematique/jeunesse').text
     assert '<summary class="is-active">Thématiques</summary>' in theme

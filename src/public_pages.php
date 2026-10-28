@@ -205,7 +205,7 @@ function mark_active_nav(string $header, string $path): string
         if ($path === '/analyses' && $country !== '' && str_contains($header, 'href="/analyses?pays=' . q($country) . '"')) {
             $current('Régions', '/analyses?pays=' . q($country));
         } else {
-            $current('Les Notes', $path === '/analyses' && $request->q('archives') === '1' ? '/analyses?archives=1' : '/analyses');
+            $current('les Notes', $path === '/analyses' && $request->q('archives') === '1' ? '/analyses?archives=1' : '/analyses');
         }
     } elseif ($path === '/invites-et-experts') {
         $current('Experts', '/invites-et-experts');
@@ -272,20 +272,22 @@ function article_date(array $article): string
     return (string) (($article['published_at'] ?? '') ?: $article['created_at']);
 }
 
-/** Article à la une : image, titre, auteur et date (sans chapô, comme les autres titres de l'accueil). */
+/** Article à la une (maquette de l'accueil) : image, titre, auteur, chapô suivi de la date. */
 function public_featured_article(array $article): string
 {
     $image = $article['featured_image'] ? '<img class="featured-image" src="' . esc($article['featured_image']) . '" alt="Image mise en avant de ' . esc($article['title']) . '">' : '<span class="featured-image-placeholder">I·D</span>';
     $date = long_date(article_date($article), $article['display_language'] ?? 'fr');
     $href = '/article/' . q($article['slug']);
-    return '<article class="featured-article" lang="' . esc(content_lang($article)) . '"><a href="' . $href . '" class="image-link">' . $image . '</a><h1><a href="' . $href . '">' . esc($article['title']) . '</a></h1><p class="featured-author">' . esc($article['author']) . ' <time class="mk-date">' . esc($date) . '</time></p></article>';
+    return '<article class="featured-article" lang="' . esc(content_lang($article)) . '"><a href="' . $href . '" class="image-link">' . $image . '</a><h1><a href="' . $href . '">' . esc($article['title']) . '</a></h1><p class="featured-author">' . esc($article['author']) . '</p><p class="featured-excerpt">' . esc($article['excerpt']) . ' <time class="mk-date">' . esc($date) . '</time></p></article>';
 }
 
-/** Titre d'une analyse dans la colonne de droite de l'accueil (titre, auteur, date). */
+/** Analyse de la colonne de droite (maquette) : image, titre et auteur, chapô sur trois lignes, date. */
 function public_analysis_article(array $article): string
 {
+    $image = $article['featured_image'] ? '<img src="' . esc($article['featured_image']) . '" alt="" loading="lazy">' : '<span class="analysis-image-placeholder">I·D</span>';
     $date = long_date(article_date($article), $article['display_language'] ?? 'fr');
-    return '<li class="analysis-item" lang="' . esc(content_lang($article)) . '"><a href="/article/' . q($article['slug']) . '">' . esc($article['title']) . '</a><span class="analysis-author">' . esc($article['author']) . '</span><time class="mk-date">' . esc($date) . '</time></li>';
+    $href = '/article/' . q($article['slug']);
+    return '<li class="analysis-item" lang="' . esc(content_lang($article)) . '"><a class="analysis-thumb" href="' . $href . '" tabindex="-1" aria-hidden="true">' . $image . '</a><div><h3><a href="' . $href . '">' . esc($article['title']) . '</a> <span class="analysis-author">' . esc($article['author']) . '</span></h3><p class="clamp-3">' . esc($article['excerpt']) . '</p><time class="mk-date">' . esc($date) . '</time></div></li>';
 }
 
 function public_news_event_card(array $item, bool $clamp = true): string
@@ -315,30 +317,25 @@ function sort_by_name(array $rows): array
     return $rows;
 }
 
-/** Bloc « Actualités / Événements » de l'accueil : liste de titres, avec la date et le lieu. */
+/** Bloc « Actualités / Événements » de l'accueil (maquette) : la dernière annonce et son bouton « Voir plus d'informations ». */
 function home_news_block(array $items): string
 {
     if (!$items) {
         return '<p class="public-empty-analysis" data-empty="events"></p>';
     }
-    $list = '';
-    foreach ($items as $item) {
-        $label = $item['kind'] === 'event' ? 'Événement' : 'Actualité';
-        $date = (string) ($item['starts_at'] ?: $item['created_at']);
-        $meta = '<span class="event-kind">' . $label . '</span>' . ($date !== '' ? '<time>' . esc(long_date($date, $item['display_language'] ?? 'fr')) . '</time>' : '') . ($item['location'] ? '<span>' . esc($item['location']) . '</span>' : '');
-        $list .= '<li class="event-entry" lang="' . esc(content_lang($item)) . '"><a href="/actualite/' . q($item['slug']) . '">' . esc($item['title']) . '</a><div class="event-meta">' . $meta . '</div></li>';
-    }
-    return '<ul class="home-news-list">' . $list . '</ul>';
+    $item = $items[0];
+    return '<div class="home-event" lang="' . esc(content_lang($item)) . '"><p>' . esc($item['title']) . '</p><a class="home-event-more" href="/actualite/' . q($item['slug']) . '">Voir plus d’informations</a></div>';
 }
 
 function public_home(): void
 {
     $db = db();
     $language = selected_language($db);
-    // Article à la une, puis les 12 titres suivants dans la colonne de droite (articles archivés exclus).
+    // Article à la une, puis les 12 analyses suivantes dans la colonne de droite : quatre visibles, les précédentes en
+    // déroulé vertical (maquette du 13/10). Les articles archivés n'apparaissent pas sur l'accueil.
     $articles = $db->all("SELECT * FROM articles WHERE status='published' AND archived=0 ORDER BY published_at DESC NULLS LAST, created_at DESC, id LIMIT 13");
-    $newsEvents = $db->all("SELECT * FROM news_events WHERE status='published' ORDER BY CASE WHEN starts_at='' THEN created_at ELSE starts_at END DESC, id DESC LIMIT 4");
-    $articles = translate_records($db, $articles, $language, ['title']);
+    $newsEvents = $db->all("SELECT * FROM news_events WHERE status='published' ORDER BY CASE WHEN starts_at='' THEN created_at ELSE starts_at END DESC, id DESC LIMIT 1");
+    $articles = translate_records($db, $articles, $language, ['title', 'excerpt']);
     $newsEvents = translate_records($db, $newsEvents, $language, ['title']);
     $themes = localized_themes($db, $language);
     $page = index_page();
