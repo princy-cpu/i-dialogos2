@@ -272,22 +272,43 @@ function article_date(array $article): string
     return (string) (($article['published_at'] ?? '') ?: $article['created_at']);
 }
 
-/** Article à la une (maquette de l'accueil) : image, titre, auteur, chapô suivi de la date. */
-function public_featured_article(array $article): string
+/**
+ * Article à la une (maquette de l'accueil) : image, titre, auteur, chapô suivi de la date. $show (réglages de
+ * /admin/accueil) masque certains éléments ; un titre masqué reste lisible par les lecteurs d'écran.
+ */
+function public_featured_article(array $article, ?array $show = null): string
 {
-    $image = $article['featured_image'] ? '<img class="featured-image" src="' . esc($article['featured_image']) . '" alt="Image mise en avant de ' . esc($article['title']) . '">' : '<span class="featured-image-placeholder">I·D</span>';
+    $show ??= home_default_settings()['featured'];
     $date = long_date(article_date($article), $article['display_language'] ?? 'fr');
     $href = '/article/' . q($article['slug']);
-    return '<article class="featured-article" lang="' . esc(content_lang($article)) . '"><a href="' . $href . '" class="image-link">' . $image . '</a><h1><a href="' . $href . '">' . esc($article['title']) . '</a></h1><p class="featured-author">' . esc($article['author']) . '</p><p class="featured-excerpt">' . esc($article['excerpt']) . ' <time class="mk-date">' . esc($date) . '</time></p></article>';
+    $html = '';
+    if ($show['image']) {
+        $image = $article['featured_image'] ? '<img class="featured-image" src="' . esc($article['featured_image']) . '" alt="Image mise en avant de ' . esc($article['title']) . '">' : '<span class="featured-image-placeholder">I·D</span>';
+        $html .= '<a href="' . $href . '" class="image-link">' . $image . '</a>';
+    }
+    $html .= '<h1' . ($show['title'] ? '' : ' class="sr-only"') . '><a href="' . $href . '">' . esc($article['title']) . '</a></h1>';
+    $html .= $show['author'] ? '<p class="featured-author">' . esc($article['author']) . '</p>' : '';
+    $text = trim(($show['excerpt'] ? esc($article['excerpt']) : '') . ' ' . ($show['date'] ? '<time class="mk-date">' . esc($date) . '</time>' : ''));
+    $html .= $text !== '' ? '<p class="featured-excerpt">' . $text . '</p>' : '';
+    return '<article class="featured-article" lang="' . esc(content_lang($article)) . '">' . $html . '</article>';
 }
 
-/** Analyse de la colonne de droite (maquette) : image, titre et auteur, chapô sur trois lignes, date. */
-function public_analysis_article(array $article): string
+/** Analyse de la colonne de droite (maquette) : image, titre et auteur, chapô sur trois lignes, date ($show : voir ci-dessus). */
+function public_analysis_article(array $article, ?array $show = null): string
 {
-    $image = $article['featured_image'] ? '<img src="' . esc($article['featured_image']) . '" alt="" loading="lazy">' : '<span class="analysis-image-placeholder">I·D</span>';
+    $show ??= home_default_settings()['column'];
     $date = long_date(article_date($article), $article['display_language'] ?? 'fr');
     $href = '/article/' . q($article['slug']);
-    return '<li class="analysis-item" lang="' . esc(content_lang($article)) . '"><a class="analysis-thumb" href="' . $href . '" tabindex="-1" aria-hidden="true">' . $image . '</a><div><h3><a href="' . $href . '">' . esc($article['title']) . '</a> <span class="analysis-author">' . esc($article['author']) . '</span></h3><p class="clamp-3">' . esc($article['excerpt']) . '</p><time class="mk-date">' . esc($date) . '</time></div></li>';
+    $thumb = '';
+    if ($show['image']) {
+        $image = $article['featured_image'] ? '<img src="' . esc($article['featured_image']) . '" alt="" loading="lazy">' : '<span class="analysis-image-placeholder">I·D</span>';
+        $thumb = '<a class="analysis-thumb" href="' . $href . '" tabindex="-1" aria-hidden="true">' . $image . '</a>';
+    }
+    $title = '<a href="' . $href . '"' . ($show['title'] ? '' : ' class="sr-only"') . '>' . esc($article['title']) . '</a>';
+    $author = $show['author'] ? ' <span class="analysis-author">' . esc($article['author']) . '</span>' : '';
+    $excerpt = $show['excerpt'] ? '<p class="clamp-3">' . esc($article['excerpt']) . '</p>' : '';
+    $time = $show['date'] ? '<time class="mk-date">' . esc($date) . '</time>' : '';
+    return '<li class="analysis-item' . ($thumb === '' ? ' no-thumb' : '') . '" lang="' . esc(content_lang($article)) . '">' . $thumb . '<div><h3>' . $title . $author . '</h3>' . $excerpt . $time . '</div></li>';
 }
 
 function public_news_event_card(array $item, bool $clamp = true): string
@@ -331,18 +352,21 @@ function public_home(): void
 {
     $db = db();
     $language = selected_language($db);
-    // Article à la une, puis les 12 analyses suivantes dans la colonne de droite : quatre visibles, les précédentes en
-    // déroulé vertical (maquette du 13/10). Les articles archivés n'apparaissent pas sur l'accueil.
-    $articles = $db->all("SELECT * FROM articles WHERE status='published' AND archived=0 ORDER BY published_at DESC NULLS LAST, created_at DESC, id LIMIT 13");
+    // Article à la une (choisi dans /admin/accueil, sinon le plus récent), puis les analyses suivantes dans la colonne de
+    // droite : quatre visibles, les suivantes en déroulé vertical (maquette du 13/10). Les articles archivés n'apparaissent
+    // pas sur l'accueil.
+    $settings = home_settings($db);
+    $articles = $db->all("SELECT * FROM articles WHERE status='published' AND archived=0 ORDER BY id=? DESC, published_at DESC NULLS LAST, created_at DESC, id LIMIT ?",
+        [$settings['featured_id'], $settings['column_count'] + 1]);
     $newsEvents = $db->all("SELECT * FROM news_events WHERE status='published' ORDER BY CASE WHEN starts_at='' THEN created_at ELSE starts_at END DESC, id DESC LIMIT 1");
     $articles = translate_records($db, $articles, $language, ['title', 'excerpt']);
     $newsEvents = translate_records($db, $newsEvents, $language, ['title']);
     $themes = localized_themes($db, $language);
     $page = index_page();
-    $featured = $articles ? public_featured_article($articles[0]) : '<div class="public-empty-featured" data-empty="articles"></div>';
+    $featured = $articles ? public_featured_article($articles[0], $settings['featured']) : '<div class="public-empty-featured" data-empty="articles"></div>';
     $page = str_replace('<div id="database-featured-article"></div>', $featured, $page);
     $recent = array_slice($articles, 1);
-    $analysis = $recent ? '<ol class="analysis-scroll" tabindex="0" aria-label="Analyses récentes">' . implode('', array_map('public_analysis_article', $recent)) . '</ol>' : '<p class="public-empty-analysis" data-empty="articles"></p>';
+    $analysis = $recent ? '<ol class="analysis-scroll" tabindex="0" aria-label="Analyses récentes">' . implode('', array_map(fn($article) => public_analysis_article($article, $settings['column']), $recent)) . '</ol>' : '<p class="public-empty-analysis" data-empty="articles"></p>';
     $page = str_replace('<div id="database-analysis-articles"></div>', $analysis, $page);
     $page = str_replace('<div id="database-news-events"></div>', home_news_block($newsEvents), $page);
     $page = (string) preg_replace('/\s*<section class="section editorial-workspace" id="atelier">.*?<\/section>\s*/s', "\n", $page);

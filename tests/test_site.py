@@ -227,6 +227,34 @@ def test_accueil_conforme_a_la_maquette(admin, visitor):
     assert 'id="public-feed"' not in page  # le bloc « Les Notes » est remplacé par un lien vers /analyses
 
 
+def test_reglages_de_la_page_d_accueil(admin, visitor):
+    older = create_article(admin, 'Réglage ancien à la une', excerpt='Chapô réglage ancien')
+    query("UPDATE articles SET published_at='2001-01-01T10:00:00+00:00' WHERE id=%s", (older,))
+    for number in range(3):
+        create_article(admin, f'Réglage colonne {number}', excerpt=f'Chapô réglage {number}')
+    page = admin.get('/admin/accueil').text
+    assert 'name="column_excerpt" value="1" checked' in page and 'href="/admin/accueil"' in page
+    token = admin.csrf('/admin/accueil')
+    response = admin.post('/admin/accueil', [('_csrf', token), ('featured_id', older), ('column_count', '2'),
+                                             ('featured_image', '1'), ('featured_title', '1'), ('featured_date', '1'),
+                                             ('column_title', '1'), ('column_author', '1')])
+    assert response.location == '/admin/accueil?saved=1'
+    home = visitor.get('/').text
+    featured = home.split('class="featured-article"', 1)[1].split('</article>', 1)[0]
+    assert 'Réglage ancien à la une' in featured and 'Chapô réglage ancien' not in featured  # article choisi, sans extrait
+    assert 'class="featured-author"' not in featured and 'class="mk-date"' in featured
+    column = home.split('<ol class="analysis-scroll"', 1)[1].split('</ol>', 1)[0]
+    assert column.count('class="analysis-item no-thumb"') == 2  # deux analyses, sans image
+    assert 'Chapô réglage' not in column and 'mk-date' not in column and 'analysis-author' in column
+    # Titre masqué : invisible à l'écran mais lisible par les lecteurs d'écran.
+    admin.post('/admin/accueil', [('_csrf', token), ('column_count', '12'), ('column_excerpt', '1')])
+    assert 'class="sr-only">Réglage colonne' in visitor.get('/').text
+    admin.post('/admin/accueil', [('_csrf', token), ('reset', '1')])
+    home = visitor.get('/').text
+    assert 'Réglage ancien à la une' not in home.split('class="featured-article"', 1)[1].split('</article>', 1)[0]
+    assert 'Chapô réglage 2' in home and 'class="analysis-thumb"' in home  # présentation de la maquette rétablie
+
+
 def test_pagination_des_analyses(admin, visitor):
     for number in range(14):
         article_id = create_article(admin, f'Paginationzeta numéro {number:02d}')

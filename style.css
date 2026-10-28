@@ -550,3 +550,6 @@ ol.analysis-scroll{max-height:690px}
 @media(min-width:901px){.head nav,.head nav summary{font-weight:600}}
 @media(max-width:680px){.world-languages{display:none}}
 .event-box h2 a,.analysis-heading a{color:inherit;text-decoration:none}.event-box h2 a:hover,.analysis-heading a:hover{color:var(--green)}
+/* Accueil : analyse sans image (réglages de /admin/accueil) sur toute la largeur. */
+li.analysis-item.no-thumb{grid-template-columns:minmax(0,1fr)}
+.featured-article .featured-excerpt time:first-child{margin-left:0}
