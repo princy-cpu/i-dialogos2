@@ -17,6 +17,7 @@ require __DIR__ . '/newsletter.php';
 require __DIR__ . '/admin_pages.php';
 require __DIR__ . '/users.php';
 require __DIR__ . '/home_settings.php';
+require __DIR__ . '/institution_pages.php';
 require __DIR__ . '/ops.php';
 
 mb_internal_encoding('UTF-8');
@@ -140,6 +141,14 @@ function route_get(string $path): void
     }
     if ($path === '/invites-et-experts') {
         public_people();
+        return;
+    }
+    if ($path === '/experts' || $path === '/invite-de-la-semaine') {
+        public_people($path === '/experts' ? 'experts' : 'guests');
+        return;
+    }
+    if (isset(INSTITUTION_PAGES[$path])) {
+        (INSTITUTION_PAGES[$path])();
         return;
     }
     if ($path === '/newsletter/confirmer') {

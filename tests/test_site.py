@@ -374,12 +374,43 @@ def guest_section(html: str) -> str:
 
 def test_invites_et_experts_contenu_fixe_tant_que_la_base_est_vide(visitor):
     home = visitor.get('/').text
-    assert 'href="/invites-et-experts">Voir plus d’informations<br>L’Invité/e de la semaine' in home
+    assert 'href="/invite-de-la-semaine">Voir plus d’informations<br>L’Invité/e de la semaine' in home
     assert 'Oumou Sall Seck' in guest_section(home) and 'Giuseppe GILIBERTI' in expert_track(home)
     page = visitor.get('/invites-et-experts')
     assert page.status == 200 and 'Oumou Sall Seck' in page.text and 'Giuseppe GILIBERTI' in page.text
-    assert '<summary class="is-active">Experts</summary>' in page.text and 'href="/invites-et-experts" aria-current="page"' in page.text
+    assert '<summary class="is-active">Experts</summary>' in page.text  # ancienne page commune, toujours en ligne
     assert visitor.get('/admin/experts').location.endswith('/admin/login')  # administration protégée
+    guests = visitor.get('/invite-de-la-semaine').text  # menu « Experts » : une page par titre
+    assert 'Oumou Sall Seck' in guests and 'Giuseppe GILIBERTI' not in guests
+    experts = visitor.get('/experts').text
+    assert 'Giuseppe GILIBERTI' in experts and 'Oumou Sall Seck' not in experts
+    assert 'href="/experts" aria-current="page"' in experts
+
+
+# --- Pages institutionnelles (fiches PDF du client, courriel du 6/11) --------------------------------------------------
+
+def test_pages_institutionnelles_et_menu(visitor):
+    home = visitor.get('/').text
+    menu = home.split('<nav aria-label="Navigation principale">', 1)[1].split('</nav>', 1)[0]
+    for href in ('/a-propos', '/gouvernance/comite-de-pilotage', '/gouvernance/coordinateurs', '/gouvernance/comite-scientifique',
+                 '/historique#signataires', '/inspirations#diagne', '/les-notes', '/les-notes/medias', '/les-notes/francophonie',
+                 '/experts', '/invite-de-la-semaine'):
+        assert f'href="{href}"' in menu, href
+    assert 'href="#' not in menu  # plus aucune rubrique ne renvoie vers une ancre de l'accueil
+    assert 'href="/gouvernance/comite-de-pilotage">Voir plus' in home  # bouton de l'accueil vers la bonne page
+    pages = {'/a-propos': 'plus de 70 pays', '/gouvernance': 'Comité de pilotage', '/gouvernance/comite-de-pilotage': 'Martin ZIGUÉLÉ',
+             '/gouvernance/coordinateurs': 'Comité de liaison des coordonnateurs', '/gouvernance/comite-scientifique': 'Ali SEDJARI',
+             '/historique': 'premiers signataires', '/inspirations': 'Souleymane Bachir Diagne', '/les-notes': 'Des analyses aux propositions',
+             '/les-notes/medias': 'Parlons-en. Dialoguons.', '/les-notes/francophonie': 'Francophonie', '/partenaires': 'Université Senghor'}
+    for path, text in pages.items():
+        page = visitor.get(path)
+        assert page.status == 200 and text in page.text, path
+    pilotage = visitor.get('/gouvernance/comite-de-pilotage').text
+    assert pilotage.count('class="member-card') == 20  # 19 membres et le membre d'honneur
+    assert '<summary class="is-active">À propos</summary>' in pilotage and 'href="/gouvernance/comite-de-pilotage" aria-current="page"' in pilotage
+    assert '<summary class="is-active">les Notes</summary>' in visitor.get('/les-notes/medias').text
+    assert 'Groupe piloté par' in visitor.get('/thematique/ultramarins').text
+    assert visitor.get('/assets/people/jimmy-vakaulifa.webp').status == 200
 
 
 def test_gestion_des_invites_et_des_experts(admin, visitor):

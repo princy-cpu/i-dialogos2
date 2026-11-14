@@ -93,6 +93,22 @@ Les administrateurs règlent l’accueil depuis **Configuration › Page d’acc
 
 Un titre masqué reste lu par les lecteurs d’écran. Le bouton « Revenir à la présentation de la maquette » rétablit les réglages d’origine. Les réglages sont enregistrés dans la table `site_settings` (migration 7).
 
+Les pages institutionnelles reprennent les fiches PDF du client (novembre 2026). Leur code est dans `src/institution_pages.php`, et chaque titre du menu ouvre sa propre page :
+
+- **À propos** :
+  - `/a-propos` (un nouveau Laboratoire d’idées) ;
+  - `/gouvernance`, avec trois sous-pages :
+    - Comité de pilotage : `/gouvernance/comite-de-pilotage` ;
+    - Coordinateurs : `/gouvernance/coordinateurs` ;
+    - Comité scientifique : `/gouvernance/comite-scientifique` ;
+  - `/historique` ;
+  - `/inspirations`.
+- **Les Notes** : `/les-notes` (présentation), `/les-notes/medias` et `/les-notes/francophonie`.
+- **Experts** : `/experts` et `/invite-de-la-semaine`.
+- **Partenaires** : `/partenaires`.
+
+Les membres du Comité de pilotage sont décrits dans la constante `STEERING_COMMITTEE`. Les portraits se trouvent dans `assets/people/` ; un membre sans photo est représenté par ses initiales.
+
 La liste des articles (« Les Notes ») est placée entre les thématiques et les experts. Chaque thématique a sa page `/thematique/<identifiant>` avec les articles publiés de la catégorie associée ; les textes et la correspondance avec les catégories sont définis dans la liste `THEMES` de `server.py`. Les images des sections viennent des maquettes, découpées dans `assets/` (logos des partenaires dans `assets/partners/`).
 
 ## Traduction automatique

@@ -166,6 +166,21 @@ function theme_block(array $theme, string $moreHref, string $titleTag = 'h2'): s
     return '<article class="mk-theme" id="theme-' . esc($theme['id']) . '" lang="' . esc(content_lang($theme)) . '"><' . $titleTag . ' class="mk-page-title">' . esc($theme['title']) . '</' . $titleTag . '><div class="mk-split"><img src="/assets/' . esc($theme['image']) . '" alt="Illustration : ' . esc($theme['title']) . '" loading="lazy"><div class="mk-theme-text">' . $question . $paragraphs . $signature . '<a class="mk-more" href="' . esc($moreHref) . '">Voir plus d’informations<br>' . esc($theme['button']) . '</a></div></div></article>';
 }
 
+/** Responsable du groupe thématique (fiches du client), avec un lien vers la Note du groupe quand elle existe. */
+const THEME_LEADS = [
+    'medias' => ['Habiba MEJRI-CHEIKH', 'Coprésidente d’I-Dialogos · Tunisie', 'habiba-mejri-cheikh', '/les-notes/medias'],
+    'ultramarins' => ['Jimmy VAKAULIAFA', 'Wallis-et-Futuna', 'jimmy-vakaulifa', ''],
+    'francophonies' => ['', '', '', '/les-notes/francophonie'],
+];
+
+function theme_lead(string $themeId): string
+{
+    [$name, $place, $photo, $note] = THEME_LEADS[$themeId] ?? ['', '', '', ''];
+    $person = $name !== '' ? '<div class="theme-lead-person">' . member_portrait($name, $photo, 'theme-lead-photo') . '<div><small>Groupe piloté par</small><strong>' . esc($name) . '</strong><span>' . esc($place) . '</span></div></div>' : '';
+    $link = $note !== '' ? '<a class="inst-button" href="' . $note . '">Lire la Note du groupe</a>' : '';
+    return ($person . $link) !== '' ? '<aside class="theme-lead">' . $person . $link . '</aside>' : '';
+}
+
 /** Bouton « Faire un don » de l'en-tête (masqué tant que DONATION_URL n'est pas réglée). */
 function donate_button(): string
 {
@@ -197,7 +212,7 @@ function mark_active_nav(string $header, string $path): string
 {
     $current = function (string $summary, string $href) use (&$header): void {
         $header = str_replace('<summary>' . $summary . '</summary>', '<summary class="is-active">' . $summary . '</summary>', $header);
-        $header = (string) preg_replace('#<a href="' . preg_quote($href, '#') . '"#', '<a href="' . $href . '" aria-current="page"', $header, 1);
+        $header = (string) preg_replace('#<a ((?:class="[^"]*" )?)href="' . preg_quote($href, '#') . '"#', '<a $1href="' . $href . '" aria-current="page"', $header, 1);
     };
     $request = request();
     if ($path === '/analyses' || str_starts_with($path, '/article/')) {
@@ -207,8 +222,12 @@ function mark_active_nav(string $header, string $path): string
         } else {
             $current('les Notes', $path === '/analyses' && $request->q('archives') === '1' ? '/analyses?archives=1' : '/analyses');
         }
-    } elseif ($path === '/invites-et-experts') {
-        $current('Experts', '/invites-et-experts');
+    } elseif (in_array($path, ['/invites-et-experts', '/experts', '/invite-de-la-semaine'], true)) {
+        $current('Experts', $path);
+    } elseif (str_starts_with($path, '/les-notes')) {
+        $current('les Notes', $path);
+    } elseif (isset(INSTITUTION_PAGES[$path]) && $path !== '/partenaires') {
+        $current('À propos', $path);
     } elseif (preg_match('#^/thematique/([a-z0-9-]+)$#', $path, $match)) {
         $current('Thématiques', '/thematique/' . $match[1]);
     }
@@ -464,7 +483,7 @@ function public_theme(string $themeId): void
         $cards .= public_card($article, array_map(fn($row) => $catsById[$row['id']], $cats), array_map(fn($row) => $tagsById[$row['id']], $tags));
     }
     $listing = $cards ? '<div class="public-article-grid theme-articles">' . $cards . '</div>' : '<p class="theme-empty">Aucune publication pour cette thématique pour le moment.</p>';
-    $body = '<main class="article-page theme-page">' . theme_block($current, '#theme-articles', 'h1') . '<section id="theme-articles"><h2 class="theme-subtitle">Analyses et contributions</h2>' . $listing . '<a class="theme-button" href="/analyses?categorie=' . q($theme['category']) . '">Toutes les analyses →</a></section>' . explore_themes($themes, 'Autres thématiques', $themeId) . '</main>';
+    $body = '<main class="article-page theme-page">' . theme_block($current, '#theme-articles', 'h1') . theme_lead($themeId) . '<section id="theme-articles"><h2 class="theme-subtitle">Analyses et contributions</h2>' . $listing . '<a class="theme-button" href="/analyses?categorie=' . q($theme['category']) . '">Toutes les analyses →</a></section>' . explore_themes($themes, 'Autres thématiques', $themeId) . '</main>';
     public_page($current['title'], $body);
 }
 
