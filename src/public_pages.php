@@ -269,7 +269,7 @@ function site_chrome(array $themes): array
 
 function site_page(string $title, string $content): string
 {
-    return '<!doctype html><html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>' . esc($title) . ' · I-Dialogos</title>' . HEAD_ASSETS . '<link rel="stylesheet" href="/style.css"><link rel="stylesheet" href="/admin.css"></head><body>' . $content . '<script src="/admin.js" defer></script></body></html>';
+    return apply_image_overrides('<!doctype html><html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>' . esc($title) . ' · I-Dialogos</title>' . HEAD_ASSETS . '<link rel="stylesheet" href="/style.css"><link rel="stylesheet" href="/admin.css"></head><body>' . $content . '<script src="/admin.js" defer></script></body></html>');
 }
 
 /** Page publique complète : en-tête du site, contenu, pied de page et scripts de la vitrine. */
@@ -278,7 +278,7 @@ function public_page(string $title, string $content, int $status = 200): void
     $db = db();
     $language = selected_language($db);
     [$header, $footer] = site_chrome(localized_themes($db, $language));
-    send_body('<!doctype html><html lang="' . esc($language) . '"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>' . esc($title) . ' · I-Dialogos</title>' . HEAD_ASSETS . '<link rel="stylesheet" href="/style.css"><link rel="stylesheet" href="/admin.css"></head><body class="public-page">' . $header . $content . $footer . '<script src="/app.js" defer></script><script src="/i18n.js" defer></script></body></html>', $status);
+    send_body(apply_image_overrides('<!doctype html><html lang="' . esc($language) . '"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>' . esc($title) . ' · I-Dialogos</title>' . HEAD_ASSETS . '<link rel="stylesheet" href="/style.css"><link rel="stylesheet" href="/admin.css"></head><body class="public-page">' . $header . $content . $footer . '<script src="/app.js" defer></script><script src="/i18n.js" defer></script></body></html>'), $status);
 }
 
 function not_found_public(): void
@@ -339,7 +339,7 @@ function public_news_event_card(array $item, bool $clamp = true): string
     return '<article class="event-entry" lang="' . esc(content_lang($item)) . '"><span class="event-kind">' . $label . '</span><h3><a href="/actualite/' . q($item['slug']) . '">' . esc($item['title']) . '</a></h3><p' . ($clamp ? ' class="clamp-3"' : '') . '>' . esc($item['summary']) . '</p><div class="event-meta">' . $when . $location . '</div></article>';
 }
 
-function public_card(array $article, array $cats, array $tags): string
+function public_card(array $article, array $cats, array $tags, bool $hasPdf = false): string
 {
     $image = $article['featured_image'] ? '<img src="' . esc($article['featured_image']) . '" alt="" loading="lazy">' : '<span class="cover-placeholder">I·D</span>';
     $category = implode(', ', array_column($cats, 'name')) ?: 'Les Notes';
@@ -348,7 +348,7 @@ function public_card(array $article, array $cats, array $tags): string
         $tagHtml .= '<a href="/analyses?tag=' . q($row['slug']) . '">#' . esc($row['name']) . '</a>';
     }
     $href = '/article/' . q($article['slug']);
-    return '<article class="public-article-card" lang="' . esc(content_lang($article)) . '" data-categories="' . esc(implode(' ', array_column($cats, 'slug'))) . '" data-tags="' . esc(implode(' ', array_column($tags, 'slug'))) . '"><a class="public-card-image" href="' . $href . '">' . $image . '</a><div class="public-card-body"><div class="article-card-meta"><span>' . esc($category) . '</span><time>' . esc(substr(article_date($article), 0, 10)) . '</time></div><h3><a href="' . $href . '">' . esc($article['title']) . '</a></h3><p>' . esc($article['excerpt']) . '</p><div class="tag-chips">' . $tagHtml . '</div><a class="read-link" href="' . $href . '">Lire l’article <span>→</span></a></div></article>';
+    return '<article class="public-article-card" lang="' . esc(content_lang($article)) . '" data-categories="' . esc(implode(' ', array_column($cats, 'slug'))) . '" data-tags="' . esc(implode(' ', array_column($tags, 'slug'))) . '"><a class="public-card-image" href="' . $href . '">' . $image . '</a><div class="public-card-body"><div class="article-card-meta"><span>' . esc($category) . '</span>' . ($hasPdf ? pdf_badge() : '') . '<time>' . esc(substr(article_date($article), 0, 10)) . '</time></div><h3><a href="' . $href . '">' . esc($article['title']) . '</a></h3><p>' . esc($article['excerpt']) . '</p><div class="tag-chips">' . $tagHtml . '</div><a class="read-link" href="' . $href . '">Lire l’article <span>→</span></a></div></article>';
 }
 
 function sort_by_name(array $rows): array
@@ -375,7 +375,8 @@ function public_home(): void
     // droite : quatre visibles, les suivantes en déroulé vertical (maquette du 13/10). Les articles archivés n'apparaissent
     // pas sur l'accueil.
     $settings = home_settings($db);
-    $articles = $db->all("SELECT * FROM articles WHERE status='published' AND archived=0 ORDER BY id=? DESC, published_at DESC NULLS LAST, created_at DESC, id LIMIT ?",
+    // Les articles épinglés restent en tête (juste après l'article à la une choisi), quelles que soient les publications suivantes.
+    $articles = $db->all("SELECT * FROM articles WHERE status='published' AND archived=0 ORDER BY id=? DESC, pinned DESC, published_at DESC NULLS LAST, created_at DESC, id LIMIT ?",
         [$settings['featured_id'], $settings['column_count'] + 1]);
     $newsEvents = $db->all("SELECT * FROM news_events WHERE status='published' ORDER BY CASE WHEN starts_at='' THEN created_at ELSE starts_at END DESC, id DESC LIMIT 1");
     $articles = translate_records($db, $articles, $language, ['title', 'excerpt']);
@@ -388,6 +389,7 @@ function public_home(): void
     $analysis = $recent ? '<ol class="analysis-scroll" tabindex="0" aria-label="Analyses récentes">' . implode('', array_map(fn($article) => public_analysis_article($article, $settings['column']), $recent)) . '</ol>' : '<p class="public-empty-analysis" data-empty="articles"></p>';
     $page = str_replace('<div id="database-analysis-articles"></div>', $analysis, $page);
     $page = str_replace('<div id="database-news-events"></div>', home_news_block($newsEvents), $page);
+    $page = str_replace('<div id="database-home-highlights"></div>', home_highlights_block($settings['highlights']), $page);
     $page = (string) preg_replace('/\s*<section class="section editorial-workspace" id="atelier">.*?<\/section>\s*/s', "\n", $page);
     $page = (string) preg_replace('/<dialog class="modal-dialog.*?<\/dialog>\s*/s', '', $page);
     $page = str_replace('href="#atelier"', 'href="/admin"', $page);
@@ -402,7 +404,7 @@ function public_home(): void
     $page = str_replace('<div id="database-explore-themes"></div>', explore_themes($themes, 'Explorer nos thématiques'), $page);
     $blocks = implode('', array_map(fn($theme) => theme_block($theme, '/thematique/' . q($theme['id'])), $themes));
     $page = str_replace('<div id="database-theme-blocks"></div>', $blocks, $page);
-    send_body($page);
+    send_body(apply_image_overrides($page));
 }
 
 /** Anciennes adresses de l'accueil filtré (/?category=…, /?tag=…, /?q=…) : redirection permanente vers /analyses. */
@@ -455,7 +457,19 @@ function public_theme(string $themeId): void
     $db = db();
     $language = selected_language($db);
     $themes = localized_themes($db, $language);
-    $articles = $db->all("SELECT articles.* FROM articles JOIN article_categories ON article_categories.article_id=articles.id JOIN categories ON categories.id=article_categories.category_id WHERE articles.status='published' AND categories.slug=? ORDER BY articles.published_at DESC NULLS FIRST, articles.created_at DESC", [$theme['category']]);
+    // 12 articles par page, les épinglés d'abord ; une page au-delà de la dernière renvoie une 404 avec un lien vers la page 1.
+    $base = '/thematique/' . $themeId;
+    $from = "FROM articles JOIN article_categories ON article_categories.article_id=articles.id JOIN categories ON categories.id=article_categories.category_id WHERE articles.status='published' AND categories.slug=?";
+    $total = (int) $db->value("SELECT COUNT(*) $from", [$theme['category']]);
+    $pages = max(1, (int) ceil($total / ANALYSES_PAGE_SIZE));
+    $page = requested_page();
+    if ($page > $pages) {
+        list_page_not_found($base, []);
+        return;
+    }
+    $articles = $db->all("SELECT articles.* $from ORDER BY articles.pinned DESC, articles.published_at DESC NULLS FIRST, articles.created_at DESC, articles.id LIMIT ? OFFSET ?",
+        [$theme['category'], ANALYSES_PAGE_SIZE, ($page - 1) * ANALYSES_PAGE_SIZE]);
+    $withPdf = articles_with_pdf($db, array_column($articles, 'id'));
     $taxonomy = [];
     $allCats = [];
     $allTags = [];
@@ -480,11 +494,13 @@ function public_theme(string $themeId): void
     $cards = '';
     foreach ($articles as $article) {
         [$cats, $tags] = $taxonomy[$article['id']];
-        $cards .= public_card($article, array_map(fn($row) => $catsById[$row['id']], $cats), array_map(fn($row) => $tagsById[$row['id']], $tags));
+        $cards .= public_card($article, array_map(fn($row) => $catsById[$row['id']], $cats), array_map(fn($row) => $tagsById[$row['id']], $tags), isset($withPdf[$article['id']]));
     }
     $listing = $cards ? '<div class="public-article-grid theme-articles">' . $cards . '</div>' : '<p class="theme-empty">Aucune publication pour cette thématique pour le moment.</p>';
-    $body = '<main class="article-page theme-page">' . theme_block($current, '#theme-articles', 'h1') . theme_lead($themeId) . '<section id="theme-articles"><h2 class="theme-subtitle">Analyses et contributions</h2>' . $listing . '<a class="theme-button" href="/analyses?categorie=' . q($theme['category']) . '">Toutes les analyses →</a></section>' . explore_themes($themes, 'Autres thématiques', $themeId) . '</main>';
-    public_page($current['title'], $body);
+    $count = $total > 0 ? '<p class="list-count theme-count"><strong>' . $total . '</strong> <span>' . ($total === 1 ? 'publication' : 'publications') . '</span>' . ($pages > 1 ? ' · page ' . $page . ' sur ' . $pages : '') . '</p>' : '';
+    $pager = pagination_nav($base, [], $page, $pages, 'theme-articles');
+    $body = '<main class="article-page theme-page">' . theme_block($current, '#theme-articles', 'h1') . theme_lead($themeId) . '<section id="theme-articles"><h2 class="theme-subtitle">Analyses et contributions</h2>' . $count . $listing . $pager . '<a class="theme-button" href="/analyses?categorie=' . q($theme['category']) . '">Toutes les analyses →</a></section>' . explore_themes($themes, 'Autres thématiques', $themeId) . '</main>';
+    public_page($current['title'] . ($page > 1 ? " – page $page" : ''), $body);
 }
 
 function page_href(string $base): string
@@ -546,6 +562,7 @@ function public_article(string $slug, array $commentState = [], int $status = 20
     }
     [$cats, $tags] = article_taxonomy($db, $article['id']);
     $comments = $db->all("SELECT * FROM comments WHERE article_id=? AND status='approved' ORDER BY created_at", [$article['id']]);
+    $attachments = article_attachments($db, $article['id']);
     $language = selected_language($db);
     $showOriginal = request()->q('original') !== '';
     if (!$showOriginal) {
@@ -574,9 +591,10 @@ function public_article(string $slug, array $commentState = [], int $status = 20
     }
     $lang = $showOriginal ? $article['language'] : content_lang($article);
     $date = long_date($article['published_at'] ?: $article['created_at'], $language);
-    $body = '<main class="article-layout"><article class="article-page" lang="' . esc($lang) . '">' . $notice . '<div class="article-topic-chips">' . $topicChips . '</div><h1>' . esc($article['title']) . '</h1><div class="article-byline">' . esc($article['author']) . ' · ' . esc($date) . '</div>' . $image . '<p class="article-excerpt">' . esc($article['excerpt']) . '</p><div class="article-rich-content">' . $article['body_html'] . '</div><div class="article-topic-chips article-tag-list">' . $tagsHtml . '</div>' . article_pager($db, $article, $language) . '</article>'
+    $body = '<main class="article-layout"><article class="article-page" lang="' . esc($lang) . '">' . $notice . '<div class="article-topic-chips">' . $topicChips . '</div><h1>' . esc($article['title']) . '</h1><div class="article-byline">' . esc($article['author']) . ' · ' . esc($date) . '</div>' . $image . pdf_invitation($attachments) . '<p class="article-excerpt">' . esc($article['excerpt']) . '</p><div class="article-rich-content">' . $article['body_html'] . '</div>' . attachments_block($attachments) . '<div class="article-topic-chips article-tag-list">' . $tagsHtml . '</div>' . article_pager($db, $article, $language) . '</article>'
         . related_aside($db, $article, $language)
-        . '<div class="article-comments">' . $commentsBlock . '<a class="back-public" href="/">← Retour à l’accueil</a></div></main>';
+        . '<div class="article-comments">' . $commentsBlock . '<a class="back-public" href="/">← Retour à l’accueil</a></div></main>'
+        . (array_filter($attachments, fn($row) => $row['kind'] === 'pdf') ? '<script type="module" src="/assets/pdf-reader.js"></script>' : '');
     public_page($article['title'], $body, $status);
 }
 

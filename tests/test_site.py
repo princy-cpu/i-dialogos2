@@ -6,6 +6,7 @@ import json
 import os
 import re
 import time
+from urllib.parse import quote
 
 import psycopg
 import pytest
@@ -590,6 +591,157 @@ def test_commentaires_messages_antispam_et_moderation(admin, visitor):
 
 
 # --- Retours du client : pays, archives, recherche par auteur, thème, pays et date ---------------------------------
+
+PDF = b'%PDF-1.4\n1 0 obj << /Type /Catalog >> endobj\ntrailer << /Root 1 0 R >>\n%%EOF\n'
+
+
+def editor_token(admin) -> str:
+    return admin.csrf('/admin/articles/new')
+
+
+def test_documents_pdf_et_liens_des_articles(admin, visitor):
+    article_id = create_article(admin, 'Article avec document PDF')
+    token = editor_token(admin)
+    base = [('_csrf', token), ('id', article_id), ('title', 'Article avec document PDF'), ('excerpt', 'Chapô'), ('body_html', '<p>Texte</p>'),
+            ('author', 'Auteur PDF'), ('language', 'fr'), ('status', 'published')]
+    links = [('link_titles[]', 'Le site du Monde diplomatique'), ('link_urls[]', 'https://www.monde-diplomatique.fr/'),
+             ('link_titles[]', 'Piège'), ('link_urls[]', 'javascript:alert(1)')]
+    response = admin.post('/admin/articles/save', base + links, files={'pdf_files[]': ('Note_de_synthese 2026.pdf', 'application/pdf', PDF)})
+    assert response.status == 303, response.text[:300]
+    rows = query('SELECT kind, title, url, size FROM article_attachments WHERE article_id=%s ORDER BY position', (article_id,))
+    assert [row['kind'] for row in rows] == ['pdf', 'link']  # le lien « javascript: » est refusé
+    assert rows[0]['title'] == 'Note de synthese 2026' and rows[0]['url'].startswith('/uploads/') and rows[0]['url'].endswith('.pdf')
+    pdf_url = rows[0]['url']
+    served = visitor.get(pdf_url)
+    assert served.status == 200 and served.headers['content-type'] == 'application/pdf'
+    page = visitor.get('/article/' + article_slug(article_id)).text
+    assert 'class="pdf-invitation"' in page and f'data-pdf-read="{pdf_url}"' in page and 'Lire le PDF' in page
+    assert 'Documents et liens' in page and 'href="https://www.monde-diplomatique.fr/"' in page and 'Télécharger' in page
+    assert '<script type="module" src="/assets/pdf-reader.js"></script>' in page
+    assert visitor.get('/assets/pdf-reader.js').status == 200
+    module = visitor.get('/assets/vendor/pdfjs/pdf.min.mjs')
+    assert module.status == 200 and module.headers['content-type'].startswith('text/javascript')
+    # Liste des Notes : vignette de l'article et pastille PDF.
+    notes = visitor.get('/analyses?q=' + quote('Article avec document PDF')).text
+    assert 'class="note-thumb"' in notes and 'class="pdf-badge"' in notes
+    # Éditeur : documents listés, titre modifiable, retrait du PDF (fichier supprimé du disque).
+    editor = admin.get(f'/admin/articles/{article_id}/edit').text
+    assert 'Note de synthese 2026' in editor and 'data-pdf-import' in editor and 'name="pdf_files[]"' in editor
+    ids = [str(row['id']) for row in query('SELECT id FROM article_attachments WHERE article_id=%s ORDER BY position', (article_id,))]
+    admin.post('/admin/articles/save', base + [('attachment_ids[]', ids[0]), ('attachment_titles[]', 'Note complète'), ('remove_attachments[]', ids[1]),
+                                               ('attachment_ids[]', ids[1]), ('attachment_titles[]', 'Le site')], files={'featured_image': ('photo.png', 'image/png', PNG)})
+    rows = query('SELECT kind, title FROM article_attachments WHERE article_id=%s', (article_id,))
+    assert rows == [{'kind': 'pdf', 'title': 'Note complète'}]
+    admin.post('/admin/articles/save', base + [('attachment_ids[]', ids[0]), ('attachment_titles[]', 'Note complète'), ('remove_attachments[]', ids[0])],
+               files={'featured_image': ('photo.png', 'image/png', PNG)})
+    assert not query('SELECT 1 FROM article_attachments WHERE article_id=%s', (article_id,))
+    assert visitor.get(pdf_url).status == 404
+    page = visitor.get('/article/' + article_slug(article_id)).text
+    assert 'pdf-invitation' not in page and 'pdf-reader.js' not in page
+    # Un faux PDF est refusé, sans rien enregistrer.
+    refused = admin.post('/admin/articles/save', base, files={'pdf_files[]': ('note.pdf', 'application/pdf', b'<?php echo 1; ?>')})
+    assert refused.status == 200 and 'n’est pas un PDF valide' in refused.text
+    assert not query('SELECT 1 FROM article_attachments WHERE article_id=%s', (article_id,))
+
+
+def test_import_pdf_en_brouillon_et_image_dans_le_texte(admin):
+    page = admin.get('/admin/articles/import')
+    assert page.status == 200 and 'data-pdf-bulk' in page.text and 'src="/assets/pdf-import.js"' in page.text
+    assert 'href="/admin/articles/import"' in admin.get('/admin/articles').text
+    token = editor_token(admin)
+    # L'import groupé envoie chaque PDF à /admin/articles/save avec ajax=1 : réponse JSON (brouillon créé).
+    response = admin.post('/admin/articles/save', [('_csrf', token), ('ajax', '1'), ('title', 'Brouillon importé du PDF'), ('excerpt', ''),
+                                                   ('body_html', '<h2>Intertitre</h2><p>Texte extrait</p>'), ('author', 'Import'), ('status', 'draft'),
+                                                   ('language', 'auto')], files={'pdf_files[]': ('source.pdf', 'application/pdf', PDF)})
+    answer = json.loads(response.text)
+    assert response.status == 200 and answer['edit'] == f"/admin/articles/{answer['id']}/edit"
+    assert query('SELECT status FROM articles WHERE id=%s', (answer['id'],))[0]['status'] == 'draft'
+    assert query("SELECT COUNT(*) AS total FROM article_attachments WHERE article_id=%s AND kind='pdf'", (answer['id'],))[0]['total'] == 1
+    error = admin.post('/admin/articles/save', [('_csrf', token), ('ajax', '1'), ('title', ''), ('author', 'Import')])
+    assert error.status == 422 and 'obligatoires' in json.loads(error.text)['error']
+    # Image insérée dans le corps de l'article depuis l'ordinateur.
+    uploaded = admin.post('/admin/articles/image', [('_csrf', token)], files={'image': ('photo.png', 'image/png', PNG)})
+    assert uploaded.status == 200 and json.loads(uploaded.text)['url'].startswith('/uploads/')
+    bad = admin.post('/admin/articles/image', [('_csrf', token)], files={'image': ('photo.png', 'image/png', b'nope')})
+    assert bad.status == 422
+
+
+def test_image_mise_en_avant_retiree(admin, visitor):
+    article_id = create_article(admin, 'Article dont on retire l’image')
+    assert query('SELECT featured_image FROM articles WHERE id=%s', (article_id,))[0]['featured_image'] != ''
+    assert 'name="remove_featured_image"' in admin.get(f'/admin/articles/{article_id}/edit').text
+    admin.post('/admin/articles/save', [('_csrf', editor_token(admin)), ('id', article_id), ('title', 'Article dont on retire l’image'), ('author', 'A'),
+                                        ('status', 'published'), ('language', 'fr'), ('remove_featured_image', '1')])
+    assert query('SELECT featured_image FROM articles WHERE id=%s', (article_id,))[0]['featured_image'] == ''
+
+
+def test_articles_epingles_textes_mis_en_avant_et_bouton_tous_les_articles(admin, visitor):
+    pinned = create_article(admin, 'Article épinglé qui reste en tête')
+    query("UPDATE articles SET published_at='2002-02-02T10:00:00+00:00' WHERE id=%s", (pinned,))
+    create_article(admin, 'Article plus récent non épinglé')
+    token = admin.csrf('/admin/articles')
+    response = admin.post('/admin/articles/bulk', [('_csrf', token), ('action', 'pin'), ('ids[]', pinned), ('back', '/admin/articles')])
+    assert response.status == 303 and query('SELECT pinned FROM articles WHERE id=%s', (pinned,))[0]['pinned'] == 1
+    assert 'status-badge pinned' in admin.get('/admin/articles').text
+    home = visitor.get('/').text
+    featured = home.split('class="featured-article"', 1)[1].split('</article>', 1)[0]
+    assert 'Article épinglé qui reste en tête' in featured  # malgré un article plus récent
+    assert 'class="home-all-link" href="/analyses"' in home and 'Voir tous les articles' in home
+    notes = visitor.get('/analyses').text
+    assert notes.index('Article épinglé qui reste en tête') < notes.index('Article plus récent non épinglé') and 'class="pin-badge"' in notes
+    # Textes mis en avant : encadrés fixes sous les articles de l'accueil.
+    token = admin.csrf('/admin/accueil')
+    fields = [('_csrf', token), ('column_count', '12'), *[(f'{zone}_{part}', '1') for zone in ('featured', 'column') for part in ('image', 'title', 'author', 'excerpt', 'date')],
+              ('highlight_title[]', 'Appel à contributions'), ('highlight_text[]', 'Envoyez vos analyses.\n\nDeuxième paragraphe.'), ('highlight_link[]', '/les-notes'), ('highlight_label[]', 'Découvrir'),
+              ('highlight_title[]', ''), ('highlight_text[]', ''), ('highlight_link[]', ''), ('highlight_label[]', ''),
+              ('highlight_title[]', 'Lien piégé'), ('highlight_text[]', ''), ('highlight_link[]', 'javascript:alert(1)'), ('highlight_label[]', '')]
+    assert admin.post('/admin/accueil', fields).location == '/admin/accueil?saved=1'
+    home = visitor.get('/').text
+    block = home.split('class="home-highlights', 1)[1].split('</section>', 1)[0]
+    assert block.count('class="home-highlight"') == 2 and '<h2>Appel à contributions</h2>' in block and '<p>Deuxième paragraphe.</p>' in block
+    assert 'href="/les-notes">Découvrir' in block and 'javascript' not in block
+    admin.post('/admin/accueil', [('_csrf', token), ('reset', '1')])
+    assert 'Appel à contributions' in visitor.get('/').text  # la présentation par défaut garde les textes
+    admin.post('/admin/accueil', fields[:12])  # sans texte : les encadrés disparaissent
+    assert 'home-highlights' not in visitor.get('/').text
+    admin.post('/admin/articles/bulk', [('_csrf', token), ('action', 'unpin'), ('ids[]', pinned), ('back', '/admin/articles')])
+    assert query('SELECT pinned FROM articles WHERE id=%s', (pinned,))[0]['pinned'] == 0
+
+
+def test_pagination_des_thematiques(admin, visitor):
+    category = query("SELECT id FROM categories WHERE slug='medias-et-pluralisme'")[0]['id']
+    for number in range(14):
+        article_id = create_article(admin, f'Thèmepagination numéro {number:02d}')
+        query('DELETE FROM article_categories WHERE article_id=%s', (article_id,))
+        query('INSERT INTO article_categories(article_id, category_id) VALUES(%s, %s)', (article_id, category))
+        query('UPDATE articles SET published_at=%s WHERE id=%s', (f'1990-01-{number + 1:02d}T10:00:00+00:00', article_id))
+    total = query('SELECT COUNT(*) AS total FROM article_categories WHERE category_id=%s', (category,))[0]['total']
+    pages = -(-total // 12)
+    first = visitor.get('/thematique/medias')
+    assert first.status == 200 and first.text.count('class="public-article-card"') == 12
+    assert '<nav class="pagination" aria-label="Pagination">' in first.text and 'href="/thematique/medias?page=2#theme-articles"' in first.text
+    last = visitor.get(f'/thematique/medias?page={pages}')
+    assert last.status == 200 and 'Thèmepagination numéro 00' in last.text and f'page {pages} sur {pages}' in last.text
+    assert visitor.get(f'/thematique/medias?page={pages + 1}').status == 404
+
+
+def test_images_du_site_remplacables(admin, visitor):
+    page = admin.get('/admin/images')
+    assert page.status == 200 and 'assets/partners/afal.webp' in page.text and 'logo-i-dialogos.png' in page.text
+    token = admin.csrf('/admin/images')
+    response = admin.post('/admin/images', [('_csrf', token), ('path', 'assets/partners/afal.webp')], files={'image': ('nouveau.png', 'image/png', PNG)})
+    assert response.location == '/admin/images?ok=remplacee'
+    replacement = json.loads(query("SELECT value FROM site_settings WHERE name='images'")[0]['value'])['assets/partners/afal.webp']
+    for path in ('/', '/partenaires'):
+        html = visitor.get(path).text
+        assert f'src="{replacement}"' in html and 'assets/partners/afal.webp' not in html
+    assert visitor.get(replacement).status == 200
+    # Chemin inconnu : ignoré ; « Rétablir » remet l'image d'origine et supprime le fichier téléversé.
+    admin.post('/admin/images', [('_csrf', token), ('path', '../src/config.php')], files={'image': ('x.png', 'image/png', PNG)})
+    assert '../src' not in query("SELECT value FROM site_settings WHERE name='images'")[0]['value']
+    admin.post('/admin/images', [('_csrf', token), ('path', 'assets/partners/afal.webp'), ('reset', '1')])
+    assert 'assets/partners/afal.webp' in visitor.get('/').text and visitor.get(replacement).status == 404
+
 
 def test_pays_archives_et_filtres_des_notes(admin, visitor):
     niger = create_article(admin, 'Paysfiltre Sahel', countries='Niger, france')

@@ -42,13 +42,14 @@ function list_href(string $base, array $filters, int $page = 1): string
     return $base . ($params ? '?' . http_build_query($params, '', '&', PHP_QUERY_RFC3986) : '');
 }
 
-/** Pagination : précédent, première et dernière pages, voisines de la page courante, suivant. */
-function pagination_nav(string $base, array $filters, int $page, int $pages): string
+/** Pagination : précédent, première et dernière pages, voisines de la page courante, suivant ($anchor : ancre de la liste). */
+function pagination_nav(string $base, array $filters, int $page, int $pages, string $anchor = ''): string
 {
     if ($pages <= 1) {
         return '';
     }
-    $link = fn(int $number, string $label, string $attributes = '') => '<a href="' . esc(list_href($base, $filters, $number)) . '"' . $attributes . '>' . $label . '</a>';
+    $fragment = $anchor !== '' ? '#' . $anchor : '';
+    $link = fn(int $number, string $label, string $attributes = '') => '<a href="' . esc(list_href($base, $filters, $number)) . $fragment . '"' . $attributes . '>' . $label . '</a>';
     $previousLabel = '<span aria-hidden="true">←</span> <span>Précédent</span>';
     $nextLabel = '<span>Suivant</span> <span aria-hidden="true">→</span>';
     $previous = $page > 1 ? $link($page - 1, $previousLabel, ' class="pagination-step" rel="prev"') : '<span class="pagination-step is-disabled" aria-disabled="true">' . $previousLabel . '</span>';
@@ -168,8 +169,8 @@ function countries_by_article(Db $db, array $ids): array
 const ARTICLE_DATE_SQL = 'COALESCE(a.published_at, a.created_at)';
 
 /**
- * Liste de titres (présentation inspirée de Brookings) : thème et date au-dessus, titre, puis auteur et pays.
- * Pas de chapô ni d'image : la page reste aérée et se parcourt d'un coup d'œil.
+ * Liste des Notes (présentation inspirée de Brookings) : vignette de l'article, thème et date au-dessus, titre, puis
+ * auteur et pays. Pas de chapô : la page reste aérée et se parcourt d'un coup d'œil. Pastilles « Épinglé » et « PDF ».
  */
 function note_rows(Db $db, array $articles, string $language): string
 {
@@ -182,13 +183,17 @@ function note_rows(Db $db, array $articles, string $language): string
         $categories[$row['article_id']][] = $row;
     }
     $countries = countries_by_article($db, $ids);
+    $withPdf = articles_with_pdf($db, $ids);
     $rows = '';
     foreach (translate_records($db, $articles, $language, ['title']) as $article) {
         $cats = localize_terms($db, $categories[$article['id']] ?? [], $language);
         $theme = $cats ? '<a href="/analyses?categorie=' . q($cats[0]['slug']) . '">' . esc($cats[0]['name']) . '</a>' : '<span>Les Notes</span>';
         $byline = esc($article['author']) . (isset($countries[$article['id']]) ? ' <span class="note-country">' . esc($countries[$article['id']]) . '</span>' : '');
-        $rows .= '<article class="note-row" lang="' . esc(content_lang($article)) . '"><div class="note-meta">' . $theme . '<time>' . esc(long_date(article_date($article), $language)) . '</time></div>'
-            . '<h3><a class="note-title" href="/article/' . q($article['slug']) . '">' . esc($article['title']) . '</a></h3><p class="note-byline">' . $byline . '</p></article>';
+        $href = '/article/' . q($article['slug']);
+        $thumb = '<a class="note-thumb" href="' . $href . '" tabindex="-1" aria-hidden="true">' . ($article['featured_image'] ? '<img src="' . esc($article['featured_image']) . '" alt="" loading="lazy">' : '<span>I·D</span>') . '</a>';
+        $badges = ((int) ($article['pinned'] ?? 0) && !(int) $article['archived'] ? '<span class="pin-badge">Épinglé</span>' : '') . (isset($withPdf[$article['id']]) ? pdf_badge() : '');
+        $rows .= '<article class="note-row has-thumb" lang="' . esc(content_lang($article)) . '">' . $thumb . '<div class="note-text"><div class="note-meta">' . $theme . '<time>' . esc(long_date(article_date($article), $language)) . '</time>' . $badges . '</div>'
+            . '<h3><a class="note-title" href="' . $href . '">' . esc($article['title']) . '</a></h3><p class="note-byline">' . $byline . '</p></div></article>';
     }
     return $rows;
 }
@@ -245,7 +250,8 @@ function public_analyses(): void
         list_page_not_found('/analyses', $filters);
         return;
     }
-    $articles = $db->all("SELECT a.* FROM articles a WHERE $condition AND a.archived=? ORDER BY " . ARTICLE_DATE_SQL . " DESC, a.id LIMIT ? OFFSET ?",
+    // Sélection : les articles épinglés d'abord. Archives : ordre chronologique seul.
+    $articles = $db->all("SELECT a.* FROM articles a WHERE $condition AND a.archived=? ORDER BY " . ($archives ? '' : 'a.pinned DESC, ') . ARTICLE_DATE_SQL . " DESC, a.id LIMIT ? OFFSET ?",
         [...$params, $archives ? 1 : 0, ANALYSES_PAGE_SIZE, ($page - 1) * ANALYSES_PAGE_SIZE]);
     $termOptions = function (string $table) use ($db, $language): array {
         $rows = sort_by_name(localize_terms($db, $db->all("SELECT id,name,slug FROM $table ORDER BY name"), $language));

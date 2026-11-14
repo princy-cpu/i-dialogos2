@@ -104,7 +104,7 @@ function safe_external_url(string $url): string
 
 const COOKIE_NAME = 'idialogos_session';
 const SESSION_TTL = 12 * 60 * 60;
-const MAX_REQUEST = 12 * 1024 * 1024;
+const MAX_REQUEST = 40 * 1024 * 1024;  // image (8 Mo) et documents PDF (10 Mo chacun)
 
 function cookie_secure(): string
 {

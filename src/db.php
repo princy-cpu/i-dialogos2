@@ -194,6 +194,15 @@ const MIGRATIONS = [
         // Réglages du site modifiables depuis l'administration, en JSON (clé « home » : voir home_settings.php).
         'CREATE TABLE IF NOT EXISTS site_settings (name TEXT PRIMARY KEY, value TEXT NOT NULL)',
     ]],
+    8 => ['Documents PDF et liens joints aux articles, articles épinglés', [
+        // kind : « pdf » (fichier téléversé dans /uploads) ou « link » (adresse externe) ; position : ordre d'affichage.
+        "CREATE TABLE IF NOT EXISTS article_attachments (id BIGSERIAL PRIMARY KEY, article_id TEXT NOT NULL REFERENCES articles(id) ON DELETE CASCADE,"
+            . " kind TEXT NOT NULL CHECK (kind IN ('pdf','link')), title TEXT NOT NULL DEFAULT '', url TEXT NOT NULL, size BIGINT NOT NULL DEFAULT 0,"
+            . " position INTEGER NOT NULL DEFAULT 0, created_at TEXT NOT NULL)",
+        'CREATE INDEX IF NOT EXISTS article_attachments_article ON article_attachments (article_id, position, id)',
+        // pinned = 1 : l'article reste en tête de l'accueil, de sa thématique et des Notes, même après de nouvelles publications.
+        'ALTER TABLE articles ADD COLUMN IF NOT EXISTS pinned INTEGER NOT NULL DEFAULT 0',
+    ]],
 ];
 
 function latest_migration(): int

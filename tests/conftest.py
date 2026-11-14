@@ -33,7 +33,7 @@ SITE_URL = 'https://www.exemple-idialogos.org'
 if not DATABASE_URL.startswith(('postgres://', 'postgresql://')):
     pytest.exit('Indiquez une base PostgreSQL de test dans DATABASE_URL (elle sera vidée).', returncode=2)
 
-TABLES = ['schema_version', 'site_settings', 'article_countries', 'mail_queue', 'article_mailings', 'subscribers', 'rate_events', 'people', 'login_attempts', 'sessions', 'translations', 'news_events', 'comments', 'article_tags',
+TABLES = ['schema_version', 'site_settings', 'article_attachments', 'article_countries', 'mail_queue', 'article_mailings', 'subscribers', 'rate_events', 'people', 'login_attempts', 'sessions', 'translations', 'news_events', 'comments', 'article_tags',
           'article_categories', 'articles', 'tags', 'categories', 'templates', 'languages', 'users']
 
 
@@ -133,7 +133,7 @@ def server_url():
            'DEPLOY_TOKEN': DEPLOY_TOKEN, 'APP_DEBUG': '1', 'DONATION_URL': 'https://exemple.org/don',
            'MAIL_TRANSPORT': 'log', 'MAIL_LOG_FILE': str(MAIL_LOG), 'SITE_URL': SITE_URL, 'TMPDIR': str(tmp), 'APP_ENV_FILE': os.devnull}
     log = open(tmp / 'server.log', 'w')
-    process = subprocess.Popen(['php', '-d', 'upload_max_filesize=12M', '-d', 'post_max_size=13M', '-d', f'sys_temp_dir={tmp}',
+    process = subprocess.Popen(['php', '-d', 'upload_max_filesize=12M', '-d', 'post_max_size=41M', '-d', f'sys_temp_dir={tmp}',
                                 '-S', f'127.0.0.1:{port}', 'dev-router.php'], cwd=ROOT, env=env, stdout=log, stderr=subprocess.STDOUT)
     url = f'http://127.0.0.1:{port}'
     for _ in range(50):
