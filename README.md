@@ -30,6 +30,9 @@ Les tables sont créées automatiquement, puis mises à jour par les migrations 
 | `src/public_pages.php` | accueil, thématiques, articles, actualités, commentaires |
 | `src/admin_pages.php` | administration |
 | `src/home_settings.php` | réglages de la page d’accueil (`/admin/accueil`) |
+| `src/attachments.php` | documents PDF et liens des articles, import PDF (`/admin/articles/import`) |
+| `src/site_images.php` | remplacement des images fixes du site (`/admin/images`) |
+| `assets/pdf-reader.js`, `assets/pdf-import.js` | liseuse PDF publique et import PDF (pdf.js 4.10, `assets/vendor/pdfjs`) |
 | `src/translation.php` | détection de langue et traduction automatique (avec cache en base) |
 | `src/db.php` | connexion PostgreSQL, structure de la base et migrations |
 | `src/html.php`, `src/http.php` | nettoyage du HTML, sessions, sécurité des formulaires |
@@ -58,14 +61,19 @@ Le script peut être relancé sans créer de doublons : un article déjà import
 - Actualités et événements avec résumé, contenu, lieu, dates, image, brouillon ou publication et page publique dédiée.
 - Sélecteur multilingue pour le français, l’anglais, l’espagnol et l’italien, avec gestion des langues actives et de la langue par défaut dans l’administration.
 - Traduction automatique des publications : la langue d’origine de chaque article et actualité est détectée automatiquement (option « Détection automatique » de l’éditeur). Le site affiche toutes les publications, traduites dans la langue choisie par le visiteur : titre, chapô, contenu (mise en forme et liens conservés), catégories et étiquettes. Un bandeau signale la traduction et propose la version originale (`?original=1`). Une langue peut aussi être forcée dans l’URL (`?lang=en`).
-- Image mise en avant téléversée depuis l’ordinateur (JPEG, PNG, GIF ou WebP, 8 Mo maximum).
-- Éditeur enrichi : gras, italique, souligné, barré, tailles de texte, titres, citation, listes, alignement, couleur, liens et images par URL.
+- Image mise en avant téléversée depuis l’ordinateur (JPEG, PNG, GIF ou WebP, 8 Mo maximum), remplaçable ou retirable.
+- Éditeur enrichi : gras, italique, souligné, barré, tailles de texte, titres, citation, listes, alignement, couleur, liens, images par URL ou téléversées depuis l’ordinateur (bouton 🖼, insérées à l’endroit du curseur).
+- Documents PDF (10 Mo chacun) et liens joints aux articles (panneau « Documents PDF et liens », 12 au plus). La page de l’article invite à lire le PDF (« Lire le PDF ») : il s’ouvre dans une liseuse intégrée (pdf.js, `assets/vendor/pdfjs`, zoom et téléchargement), ou dans un onglet si la liseuse ne peut pas se charger. Les listes signalent les articles accompagnés d’un PDF.
+- Import d’articles depuis des PDF, dans le navigateur (`assets/pdf-import.js`) : dans l’éditeur, l’encadré « Importer depuis un PDF » remplit titre, chapô et contenu (intertitres, paragraphes, listes ; en-têtes et pieds de page répétés retirés), joint le PDF et prend sa première page comme image. « Importer des PDF » (`/admin/articles/import`) crée un brouillon par fichier, à relire avant publication. Un PDF scanné (image sans texte) est joint mais son texte n’est pas repris.
+- Articles épinglés (case « Épingler en tête » ou action groupée) : ils restent en tête de l’accueil, de leur thématique et des Notes malgré les nouvelles publications.
+- Images du site (`/admin/images`, administrateurs) : chaque image fixe (logo, thématiques, pages, portraits, partenaires) peut être remplacée puis rétablie, sans toucher aux fichiers d’origine.
+- Pages thématiques paginées (12 articles par page).
 - Catégories et étiquettes, ajoutées dans l’administration ou depuis l’éditeur.
 - Modèles d’article personnalisables et choix d’un modèle par défaut.
 - Commentaires activables par article, avec modération avant affichage.
 - Authentification administrateur, mots de passe hachés avec PBKDF2, sessions HttpOnly et protection CSRF.
 - Espace adhérent (`/admin`) avec trois rôles : **Administrateur** (tous les droits, seul à gérer les utilisateurs), **Auteur** (publie directement, ne modifie que ses propres articles), **Adhérent** (tableau de bord, profil, messagerie « Bientôt disponible »). Les comptes se créent, se modifient et se désactivent dans « Utilisateurs » ; un compte désactivé est déconnecté immédiatement. Chaque liste a une recherche et une pagination (20 lignes par page).
-- Les Notes (`/analyses`) présentées en titres, avec deux onglets : **Sélection** (articles mis en avant, aussi sur l’accueil) et **Archives** (articles rangés par l’équipe, toujours en ligne). Filtres par thème, auteur, pays, année, mot-clé, langue et texte. Chaque article peut concerner plusieurs pays (champ « Pays » de l’éditeur) ; le menu « Régions » liste ces pays. Le rangement se fait article par article (case « Ranger dans les archives ») ou par lot depuis la liste des articles.
+- Les Notes (`/analyses`) présentées en titres avec la vignette de chaque article, avec deux onglets : **Sélection** (articles mis en avant, aussi sur l’accueil) et **Archives** (articles rangés par l’équipe, toujours en ligne). Filtres par thème, auteur, pays, année, mot-clé, langue et texte. Chaque article peut concerner plusieurs pays (champ « Pays » de l’éditeur) ; le menu « Régions » liste ces pays. Le rangement se fait article par article (case « Ranger dans les archives ») ou par lot depuis la liste des articles.
 - Invités de la semaine et experts gérés dans l’administration (page publique `/invites-et-experts`).
 - Newsletter à double confirmation (Brevo), lien de désinscription dans chaque e-mail, annonce automatique de chaque article publié (une seule fois, par une file d’envoi).
 - Commentaires protégés contre les robots (champ piège, 3 envois par adresse IP en 10 minutes) et publiés après validation.
@@ -89,9 +97,26 @@ Les administrateurs règlent l’accueil depuis **Configuration › Page d’acc
 
 - choisir l’article à la une (par défaut, le plus récent) ;
 - fixer le nombre d’analyses de la colonne de droite (de 1 à 24) ;
-- afficher ou masquer, séparément pour l’article à la une et pour la colonne, l’image, le titre, l’auteur, l’extrait de texte et la date.
+- afficher ou masquer, séparément pour l’article à la une et pour la colonne, l’image, le titre, l’auteur, l’extrait de texte et la date ;
+- rédiger jusqu’à trois **textes mis en avant** (titre, texte, lien et bouton facultatifs) : des encadrés fixes affichés sous les articles, qui restent en place quand de nouveaux articles sont publiés.
 
-Un titre masqué reste lu par les lecteurs d’écran. Le bouton « Revenir à la présentation de la maquette » rétablit les réglages d’origine. Les réglages sont enregistrés dans la table `site_settings` (migration 7).
+Sous les articles, le bouton « Voir tous les articles » mène aux Notes (`/analyses`). Les articles épinglés passent juste après l’article à la une choisi (ou deviennent l’article à la une s’il n’y en a pas). Un titre masqué reste lu par les lecteurs d’écran. Le bouton « Revenir à la présentation de la maquette » rétablit l’affichage d’origine des articles, sans effacer les textes mis en avant. Les réglages sont enregistrés dans la table `site_settings` (migration 7).
+
+Les pages institutionnelles reprennent les fiches PDF du client (novembre 2026). Leur code est dans `src/institution_pages.php`, et chaque titre du menu ouvre sa propre page :
+
+- **À propos** :
+  - `/a-propos` (un nouveau Laboratoire d’idées) ;
+  - `/gouvernance`, avec trois sous-pages :
+    - Comité de pilotage : `/gouvernance/comite-de-pilotage` ;
+    - Coordinateurs : `/gouvernance/coordinateurs` ;
+    - Comité scientifique : `/gouvernance/comite-scientifique` ;
+  - `/historique` ;
+  - `/inspirations`.
+- **Les Notes** : `/les-notes` (présentation), `/les-notes/medias` et `/les-notes/francophonie`.
+- **Experts** : `/experts` et `/invite-de-la-semaine`.
+- **Partenaires** : `/partenaires`.
+
+Les membres du Comité de pilotage sont décrits dans la constante `STEERING_COMMITTEE`. Les portraits se trouvent dans `assets/people/` ; un membre sans photo est représenté par ses initiales.
 
 La liste des articles (« Les Notes ») est placée entre les thématiques et les experts. Chaque thématique a sa page `/thematique/<identifiant>` avec les articles publiés de la catégorie associée ; les textes et la correspondance avec les catégories sont définis dans la liste `THEMES` de `server.py`. Les images des sections viennent des maquettes, découpées dans `assets/` (logos des partenaires dans `assets/partners/`).
 
@@ -121,6 +146,8 @@ MAIL_FROM_EMAIL=newsletter@i-dialogos.org    # expéditeur validé dans Brevo (E
 MAIL_FROM_NAME=I-Dialogos                    # facultatif
 MAIL_DAILY_LIMIT=300                         # facultatif : plafond quotidien (offre gratuite Brevo : 300)
 ```
+
+Envois de fichiers : le site accepte des PDF de 10 Mo et des requêtes de 40 Mo. Sur l’hébergement, réglez PHP en conséquence (espace client LWS, configuration PHP) : `upload_max_filesize = 12M` et `post_max_size = 40M` ; sinon le message d’erreur indique la limite du serveur.
 
 La file d’envoi de la newsletter est traitée juste après chaque publication, et peut l’être à intervalles réguliers par une tâche planifiée (cron, toutes les 15 minutes) : `curl -fsS -X POST -H "X-Deploy-Token: $DEPLOY_TOKEN" https://www.i-dialogos.org/_ops/mail-queue`. Le bouton « Envoyer la file maintenant » de l’administration (Newsletter) fait de même.
 

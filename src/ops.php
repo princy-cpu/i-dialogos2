@@ -9,8 +9,8 @@
 declare(strict_types=1);
 
 const BACKUP_TABLES = ['users', 'languages', 'templates', 'categories', 'tags', 'articles', 'article_categories', 'article_tags', 'article_countries',
-    'comments', 'news_events', 'translations', 'schema_version', 'login_attempts', 'people', 'subscribers', 'article_mailings', 'mail_queue', 'rate_events', 'site_settings'];
-const SERIAL_TABLES = ['users', 'templates', 'categories', 'tags', 'comments', 'news_events', 'people', 'subscribers', 'mail_queue'];
+    'comments', 'news_events', 'translations', 'schema_version', 'login_attempts', 'people', 'subscribers', 'article_mailings', 'mail_queue', 'rate_events', 'site_settings', 'article_attachments'];
+const SERIAL_TABLES = ['users', 'templates', 'categories', 'tags', 'comments', 'news_events', 'people', 'subscribers', 'mail_queue', 'article_attachments'];
 
 function ops_route(string $path): void
 {

@@ -101,8 +101,11 @@ function person_card(array $person, string $language): string
     return '<article class="person-card" lang="' . esc(content_lang($person)) . '">' . person_photo($person, 'person-photo') . '<div class="person-body"><h3>' . esc($person['name']) . '</h3>' . person_meta($person) . $date . text_paragraphs($person['description']) . '</div></article>';
 }
 
-/** /invites-et-experts : tous les invités (le plus récent mis en avant) et tous les experts. */
-function public_people(): void
+/**
+ * /invites-et-experts : tous les invités (le plus récent mis en avant) et tous les experts ; /invite-de-la-semaine et
+ * /experts ($section 'guests' ou 'experts') n'affichent que l'une des deux parties, comme le demande le menu « Experts ».
+ */
+function public_people(string $section = 'all'): void
 {
     $db = db();
     $language = selected_language($db);
@@ -125,10 +128,19 @@ function public_people(): void
         // Aucun expert enregistré : les experts présentés sur l'accueil (contenu fixe).
         $expertsHtml = '<div class="people-grid people-static">' . str_replace('src="assets/', 'src="/assets/', static_between('<!-- experts:debut -->', '<!-- experts:fin -->')) . '</div>';
     }
+    $guestsSection = '<section id="invites" class="people-section" aria-labelledby="invites-title"><h2 id="invites-title" class="theme-subtitle">Invités de la semaine</h2>' . $guestsHtml . '</section>';
+    $expertsSection = '<section id="experts-liste" class="people-section" aria-labelledby="experts-title"><h2 id="experts-title" class="theme-subtitle">Experts</h2>' . $expertsHtml . '</section>';
+    if ($section === 'guests') {
+        public_page('L’invité/e de la semaine', '<main class="list-page people-page"><div class="section-heading"><span class="eyebrow">Experts</span><h1>L’invité/e de la semaine</h1><p>Chaque semaine, une personnalité du réseau I-Dialogos partage son regard.</p></div>' . $guestsHtml . '</main>');
+        return;
+    }
+    if ($section === 'experts') {
+        public_page('Les experts I-Dialogos', '<main class="list-page people-page"><div class="section-heading"><span class="eyebrow">Experts</span><h1>Les experts I-Dialogos</h1><p>Des experts de tous les continents qui fournissent des recherches, des recommandations et des analyses croisées.</p></div>' . $expertsHtml . '</main>');
+        return;
+    }
     $body = '<main class="list-page people-page"><div class="section-heading"><span class="eyebrow">Le réseau I-Dialogos</span><h1>Invités et experts</h1><p>Les invités de la semaine et les experts qui font vivre le dialogue d’I-Dialogos.</p></div>'
         . '<nav class="people-tabs" aria-label="Sections de la page"><a href="#invites">Invités de la semaine</a><a href="#experts-liste">Experts</a></nav>'
-        . '<section id="invites" class="people-section" aria-labelledby="invites-title"><h2 id="invites-title" class="theme-subtitle">Invités de la semaine</h2>' . $guestsHtml . '</section>'
-        . '<section id="experts-liste" class="people-section" aria-labelledby="experts-title"><h2 id="experts-title" class="theme-subtitle">Experts</h2>' . $expertsHtml . '</section></main>';
+        . $guestsSection . $expertsSection . '</main>';
     public_page('Invités et experts', $body);
 }
 

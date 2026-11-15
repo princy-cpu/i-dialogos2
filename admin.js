@@ -22,6 +22,45 @@ if (richEditor && articleEditorForm) {
       document.execCommand('insertImage', false, src);
     }
   });
+  // Image téléversée depuis l'ordinateur, insérée à l'endroit du curseur.
+  const uploadButton = document.createElement('button');
+  uploadButton.type = 'button';
+  uploadButton.title = 'Insérer une image depuis l’ordinateur';
+  uploadButton.textContent = '🖼';
+  const uploadInput = Object.assign(document.createElement('input'), { type: 'file', accept: 'image/jpeg,image/png,image/webp,image/gif', hidden: true });
+  toolbar.insertBefore(uploadButton, imageButton);
+  toolbar.append(uploadInput);
+  let savedRange = null;
+  uploadButton.addEventListener('mousedown', event => {
+    event.preventDefault();
+    const selection = window.getSelection();
+    savedRange = selection.rangeCount && richEditor.contains(selection.anchorNode) ? selection.getRangeAt(0).cloneRange() : null;
+  });
+  uploadButton.addEventListener('click', () => uploadInput.click());
+  uploadInput.addEventListener('change', async () => {
+    const file = uploadInput.files[0];
+    if (!file) return;
+    const data = new FormData();
+    data.set('_csrf', articleEditorForm.querySelector('input[name="_csrf"]').value);
+    data.set('image', file);
+    uploadButton.disabled = true;
+    try {
+      const response = await fetch('/admin/articles/image', { method: 'POST', body: data, credentials: 'same-origin' });
+      const answer = await response.json();
+      if (!response.ok || !answer.url) throw new Error(answer.error || 'Envoi impossible');
+      focusEditor();
+      if (savedRange) {
+        const selection = window.getSelection();
+        selection.removeAllRanges();
+        selection.addRange(savedRange);
+      }
+      document.execCommand('insertImage', false, answer.url);
+    } catch (error) {
+      alert(error.message || 'L’image n’a pas pu être envoyée.');
+    }
+    uploadButton.disabled = false;
+    uploadInput.value = '';
+  });
   document.querySelectorAll('.rich-toolbar button').forEach(button => {
     button.addEventListener('mousedown', event => event.preventDefault());
     button.addEventListener('click', () => {
@@ -72,6 +111,15 @@ if (richEditor && articleEditorForm) {
     preview.src = URL.createObjectURL(file);
   });
 }
+
+// Documents et liens de l'article : « + Un autre lien » ajoute une ligne vide.
+document.querySelector('[data-add-link]')?.addEventListener('click', () => {
+  const rows = document.querySelector('#link-rows');
+  const row = rows.querySelector('.link-row').cloneNode(true);
+  row.querySelectorAll('input').forEach(input => { input.value = ''; });
+  rows.append(row);
+  row.querySelector('input').focus();
+});
 
 document.querySelectorAll('form[onsubmit]').forEach(form => {
   form.addEventListener('submit', event => {

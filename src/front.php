@@ -17,6 +17,9 @@ require __DIR__ . '/newsletter.php';
 require __DIR__ . '/admin_pages.php';
 require __DIR__ . '/users.php';
 require __DIR__ . '/home_settings.php';
+require __DIR__ . '/institution_pages.php';
+require __DIR__ . '/attachments.php';
+require __DIR__ . '/site_images.php';
 require __DIR__ . '/ops.php';
 
 mb_internal_encoding('UTF-8');
@@ -26,7 +29,7 @@ App::$request = new Request();
 const STATIC_FILES = ['/style.css', '/app.js', '/admin.css', '/admin.js', '/i18n.js'];
 const MIME_TYPES = ['css' => 'text/css; charset=utf-8', 'js' => 'text/javascript; charset=utf-8', 'png' => 'image/png', 'jpg' => 'image/jpeg',
     'jpeg' => 'image/jpeg', 'gif' => 'image/gif', 'webp' => 'image/webp', 'svg' => 'image/svg+xml', 'ico' => 'image/x-icon',
-    'woff2' => 'font/woff2', 'woff' => 'font/woff', 'json' => 'application/json', 'txt' => 'text/plain; charset=utf-8', 'pdf' => 'application/pdf'];
+    'woff2' => 'font/woff2', 'woff' => 'font/woff', 'json' => 'application/json', 'txt' => 'text/plain; charset=utf-8', 'pdf' => 'application/pdf', 'mjs' => 'text/javascript; charset=utf-8'];
 
 function serve_file(string $file, int $maxAge): void
 {
@@ -61,7 +64,7 @@ function upload_file(string $path): void
 {
     $name = basename($path);
     $file = upload_dir() . '/' . $name;
-    if (!preg_match('/^[a-f0-9-]+\.(?:jpg|jpeg|png|gif|webp)$/D', $name) || !is_file($file)) {
+    if (!preg_match('/^[a-f0-9-]+\.(?:jpg|jpeg|png|gif|webp|pdf)$/D', $name) || !is_file($file)) {
         not_found_plain();
         return;
     }
@@ -142,6 +145,14 @@ function route_get(string $path): void
         public_people();
         return;
     }
+    if ($path === '/experts' || $path === '/invite-de-la-semaine') {
+        public_people($path === '/experts' ? 'experts' : 'guests');
+        return;
+    }
+    if (isset(INSTITUTION_PAGES[$path])) {
+        (INSTITUTION_PAGES[$path])();
+        return;
+    }
     if ($path === '/newsletter/confirmer') {
         newsletter_confirm();
         return;
@@ -186,7 +197,7 @@ function route_get(string $path): void
             return;
         }
         $admin = ['/admin/articles' => fn() => dashboard('articles'), '/admin/events' => 'events_page', '/admin/events/new' => fn() => event_form(),
-            '/admin/articles/new' => fn() => article_form(), '/admin/categories' => fn() => taxonomy_page('categories'),
+            '/admin/articles/new' => fn() => article_form(), '/admin/articles/import' => 'pdf_import_page', '/admin/images' => 'site_images_page', '/admin/categories' => fn() => taxonomy_page('categories'),
             '/admin/tags' => fn() => taxonomy_page('tags'), '/admin/templates' => 'templates_page', '/admin/comments' => 'comments_page',
             '/admin/languages' => 'languages_page', '/admin/newsletter' => fn() => newsletter_admin_page(),
             '/admin/users' => fn() => users_page(), '/admin/users/new' => fn() => user_form(), '/admin/profile' => fn() => profile_page(),
@@ -280,7 +291,7 @@ function route_post(string $path): void
         '/admin/tags' => fn() => taxonomy_post('tags', false), '/admin/tags/delete' => fn() => taxonomy_post('tags', true),
         '/admin/templates' => 'templates_post', '/admin/languages' => 'languages_post', '/admin/newsletter/process' => 'newsletter_admin_process',
         '/admin/users/save' => 'save_user', '/admin/articles/bulk' => 'bulk_articles', '/admin/profile' => 'save_profile',
-        '/admin/accueil' => 'save_home_settings'];
+        '/admin/accueil' => 'save_home_settings', '/admin/articles/image' => 'upload_article_image', '/admin/images' => 'save_site_image'];
     if (isset($routes[$path])) {
         $routes[$path]();
     } elseif (count($segments) === 4 && $segments[1] === 'events' && $segments[3] === 'delete') {
