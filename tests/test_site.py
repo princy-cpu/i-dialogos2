@@ -684,6 +684,28 @@ def test_image_mise_en_avant_retiree(admin, visitor):
     assert big.status == 413 and 'Envoi trop volumineux' in big.text
 
 
+def test_notifications_apres_chaque_action_et_pages_jamais_en_cache(admin, visitor):
+    article_id = create_article(admin, 'Article notifié après enregistrement')
+    listing = admin.get('/admin/articles')
+    assert 'class="admin-toast is-success"' in listing.text and '« Article notifié après enregistrement » publié' in listing.text
+    assert 'nouvelle image mise en avant enregistrée' in listing.text and 'Voir l’article' in listing.text
+    assert 'admin-toast' not in admin.get('/admin/articles').text  # affichée une seule fois
+    # Page de l'éditeur et page publique : jamais servies depuis un cache, l'image modifiée se voit en actualisant.
+    editor = admin.get(f'/admin/articles/{article_id}/edit')
+    assert 'no-store' in editor.headers.get('cache-control', '')
+    assert visitor.get('/article/' + article_slug(article_id)).headers.get('cache-control') == 'no-cache'
+    # Action groupée, suppression : message adapté ; aucune case cochée : erreur.
+    token = admin.csrf('/admin/articles')
+    admin.post('/admin/articles/bulk', [('_csrf', token), ('action', 'pin'), ('ids[]', article_id), ('back', '/admin/articles')])
+    assert '1 article(s) épinglé(s) en tête.' in admin.get('/admin/articles').text
+    admin.post('/admin/articles/bulk', [('_csrf', admin.csrf('/admin/articles')), ('action', 'pin'), ('back', '/admin/articles')])
+    assert 'admin-toast is-error' in admin.get('/admin/articles').text
+    admin.post(f'/admin/articles/{article_id}/delete', [('_csrf', admin.csrf('/admin/articles'))])
+    assert 'Article supprimé.' in admin.get('/admin/articles').text
+    # Les visiteurs ne voient jamais ces notifications.
+    assert 'admin-toast' not in visitor.get('/').text
+
+
 def test_articles_epingles_textes_mis_en_avant_et_bouton_tous_les_articles(admin, visitor):
     pinned = create_article(admin, 'Article épinglé qui reste en tête')
     query("UPDATE articles SET published_at='2002-02-02T10:00:00+00:00' WHERE id=%s", (pinned,))

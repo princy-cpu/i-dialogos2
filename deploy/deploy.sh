@@ -109,7 +109,10 @@ case "$ACTION" in
       echo "Sauvegarde impossible (réponse : ${backup##*$'\n'}), poursuite autorisée (première mise en place)." >&2
     else
       echo "Sauvegarde impossible (HTTP ${backup##*$'\n'}) : déploiement interrompu, le site n'a pas changé." >&2
-      echo "Pour la toute première mise en place, relancer avec ALLOW_NO_BACKUP=1." >&2
+      # Début de la réponse : distingue « aucune version en ligne » (chargeur), page d'attente de l'hébergeur, erreur PHP.
+      reply="$(printf '%s' "${backup%$'\n'*}" | sed -e 's/<[^>]*>/ /g' | tr -s ' \t\r\n' ' ' | cut -c1-300)"
+      [ -n "${reply// /}" ] && echo "Réponse du site : $reply" >&2
+      echo "Pour la toute première mise en place, relancer avec ALLOW_NO_BACKUP=1 (Run workflow > cocher « Première mise en place »)." >&2
       exit 1
     fi
 

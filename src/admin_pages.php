@@ -49,7 +49,7 @@ function admin_page(string $title, string $content, string $active = ''): string
     $user = $session ? '<a class="admin-user" href="/admin/profile"><span class="admin-avatar" aria-hidden="true">' . esc(mb_strtoupper(mb_substr($session['display_name'] ?: $session['username'], 0, 1))) . '</span><span>' . esc($session['display_name'] ?: $session['username']) . '<small>' . esc(ROLES[$role] ?? '') . '</small></span></a>' : '';
     $logout = $session ? '<form method="post" action="/admin/logout">' . csrf_field() . '<button class="nav-logout">Déconnexion</button></form>' : '';
     $shell = '<header class="admin-topbar"><a class="admin-brand" href="/"><img src="/assets/logo-i-dialogos.png" alt="I-Dialogos, think tank" width="330" height="109"> <small>Espace adhérent</small></a><div><a href="/" class="view-site">Voir le site ↗</a><select id="language-select" class="language-select" aria-label="Choisir la langue"></select>' . $user . $logout . '</div></header><div class="admin-layout"><aside class="admin-sidebar"><nav aria-label="Espace adhérent">' . $nav . '</nav></aside>' . $content . '</div>';
-    return site_page($title, $shell);
+    return site_page($title, $shell . ($session ? take_notice_html() : ''));
 }
 
 function any_user(): bool
@@ -613,6 +613,8 @@ function save_article(): void
     }
     $ownerId = (int) auth()['user_id'];
     [$imagePath, $imageError] = store_uploaded_image($r->files['featured_image'] ?? null);
+    $newImage = $imagePath !== '';
+    $imageRemoved = !$newImage && $r->form('remove_featured_image') !== '';
     if ($imageError !== '') {
         $fail($imageError);
         return;
@@ -701,6 +703,16 @@ function save_article(): void
         send_body(json_encode(['id' => $savedId, 'edit' => '/admin/articles/' . $savedId . '/edit'], JSON_UNESCAPED_SLASHES), 200, 'application/json; charset=utf-8');
         return;
     }
+    $details = [];
+    if ($newImage) {
+        $details[] = 'nouvelle image mise en avant enregistrée';
+    } elseif ($imageRemoved) {
+        $details[] = 'image mise en avant retirée';
+    }
+    $headline = $status === 'published' ? ($wasPublished ? '« ' . $title . ' » mis à jour : les changements sont en ligne' : '« ' . $title . ' » publié') : '« ' . $title . ' » enregistré en brouillon';
+    $slug = (string) db()->value('SELECT slug FROM articles WHERE id=?', [$savedId]);
+    flash($headline . ($details ? ' · ' . implode(', ', $details) : '') . '.', 'success',
+        $status === 'published' ? '/article/' . q($slug) : '/admin/articles/' . $savedId . '/edit', $status === 'published' ? 'Voir l’article' : 'Reprendre le brouillon');
     redirect('/admin/articles');
 }
 
@@ -727,6 +739,8 @@ function bulk_articles(): void
     $back = request()->form('back');
     $back = preg_match('#^/admin(/articles)?(\?[^\s"<>]*)?$#D', $back) ? $back : '/admin/articles';
     $back = (string) preg_replace('/([?&])ranges=\d+&?/', '$1', $back);
+    $labels = ['pin' => 'épinglé(s) en tête', 'unpin' => 'désépinglé(s)', 'unarchive' => 'remis dans la sélection'];
+    flash($done ? $done . ' article(s) ' . ($labels[$action] ?? 'rangé(s) dans les archives') . '.' : 'Aucun article modifié : cochez au moins un article que vous pouvez modifier.', $done ? 'success' : 'error');
     redirect(rtrim($back, '?&') . (str_contains($back, '?') ? '&' : '?') . 'ranges=' . $done);
 }
 
