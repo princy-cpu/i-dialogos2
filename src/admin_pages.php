@@ -518,7 +518,7 @@ function article_form(?string $articleId = null, string $error = ''): void
         . '<aside class="article-edit-sidebar"><section class="side-panel"><h2>Publication</h2><label class="admin-field">État<select name="status"><option value="draft" ' . selected_attr($status === 'draft') . '>Brouillon</option><option value="published" ' . selected_attr($status === 'published') . '>Publier</option></select></label><label class="check-option archive-option"><input type="checkbox" name="pinned" value="1" ' . ($pinned ? 'checked' : '') . '>Épingler en tête</label><small class="field-help">Un article épinglé reste en tête de l’accueil, de sa thématique et des Notes, même quand de nouveaux articles sont publiés.</small><label class="check-option archive-option"><input type="checkbox" name="archived" value="1" ' . ($archived ? 'checked' : '') . '>Ranger dans les archives</label><small class="field-help">Un article archivé reste en ligne et se retrouve par auteur, thème, pays ou date, mais n’apparaît plus sur l’accueil ni dans la sélection.</small><label class="admin-field">Auteur/autrice<input name="author" required maxlength="120" value="' . esc($article['author'] ?? ($session['display_name'] ?: $session['username'])) . '"></label><div class="side-actions"><button class="primary-button" type="submit">' . ($article ? 'Enregistrer' : 'Enregistrer l’article') . '</button><a class="plain-button" href="/admin">Annuler</a></div></section>'
         . translations_panel($languages, $article)
         . pdf_import_panel()
-        . '<section class="side-panel"><h2>Image mise en avant</h2>' . $imageHtml . '<label class="admin-field">' . ($image ? 'Remplacer l’image' : 'Choisir une image') . '<input type="file" name="featured_image" accept="image/jpeg,image/png,image/webp,image/gif"></label>' . $removeImage . '<small class="field-help">JPG, PNG, WebP ou GIF · 8 Mo maximum.</small></section>'
+        . '<section class="side-panel"><h2>Image mise en avant</h2>' . $imageHtml . '<label class="admin-field">' . ($image ? 'Remplacer l’image' : 'Choisir une image') . '<input type="file" name="featured_image" accept="image/jpeg,image/png,image/webp,image/gif"></label>' . $removeImage . '<small class="field-help">JPG, PNG, WebP ou GIF. Les photos lourdes sont allégées automatiquement à l’envoi.</small></section>'
         . attachments_panel($attachments)
         . '<section class="side-panel"><h2>Catégories</h2><div class="check-list">' . $catOptions . '</div>' . $manage('/admin/categories', '+ Ajouter une catégorie') . '</section>'
         . '<section class="side-panel"><h2>Pays</h2><label class="admin-field">Pays concernés<input name="countries" maxlength="300" list="known-countries" value="' . esc($countries) . '" placeholder="Ex. Niger, France"></label><datalist id="known-countries">' . $knownCountries . '</datalist><small class="field-help">Séparés par des virgules. Les visiteurs peuvent retrouver les articles par pays.</small></section>'
@@ -542,7 +542,11 @@ function store_uploaded_image(?array $file): array
     if (!$file || ($file['error'] ?? UPLOAD_ERR_NO_FILE) === UPLOAD_ERR_NO_FILE || (int) ($file['size'] ?? 0) === 0) {
         return ['', ''];
     }
-    if (in_array($file['error'], [UPLOAD_ERR_INI_SIZE, UPLOAD_ERR_FORM_SIZE], true) || (int) $file['size'] > 8 * 1024 * 1024) {
+    if ($file['error'] === UPLOAD_ERR_INI_SIZE) {
+        // Limite du serveur (upload_max_filesize) plus basse que celle du site : à relever dans la configuration PHP.
+        return ['', 'L’image dépasse la taille acceptée par le serveur (' . ini_get('upload_max_filesize') . '). Réduisez-la ou relevez upload_max_filesize.'];
+    }
+    if ($file['error'] === UPLOAD_ERR_FORM_SIZE || (int) $file['size'] > 8 * 1024 * 1024) {
         return ['', 'L’image dépasse la limite de 8 Mo.'];
     }
     if ($file['error'] !== UPLOAD_ERR_OK || !is_uploaded_file($file['tmp_name'])) {
@@ -553,7 +557,9 @@ function store_uploaded_image(?array $file): array
     [$signature, $mime] = $signatures[$ext] ?? ['', ''];
     $head = (string) file_get_contents($file['tmp_name'], false, null, 0, 16);
     $valid = $signature !== '' && str_starts_with($head, $signature) && ($ext !== '.webp' || substr($head, 8, 4) === 'WEBP');
-    if (!$valid || ($file['type'] ?? '') !== $mime) {
+    // Le type annoncé varie selon le navigateur (image/jpg, image/pjpeg…) : la signature du fichier fait foi.
+    $aliases = ['image/jpeg' => ['image/jpeg', 'image/jpg', 'image/pjpeg'], 'image/png' => ['image/png', 'image/x-png']];
+    if (!$valid || !in_array(strtolower((string) ($file['type'] ?? '')), $aliases[$mime] ?? [$mime], true)) {
         return ['', 'Choisissez une image JPEG, PNG, GIF ou WebP valide.'];
     }
     $directory = upload_dir();

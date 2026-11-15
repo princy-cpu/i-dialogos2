@@ -673,6 +673,15 @@ def test_image_mise_en_avant_retiree(admin, visitor):
     admin.post('/admin/articles/save', [('_csrf', editor_token(admin)), ('id', article_id), ('title', 'Article dont on retire l’image'), ('author', 'A'),
                                         ('status', 'published'), ('language', 'fr'), ('remove_featured_image', '1')])
     assert query('SELECT featured_image FROM articles WHERE id=%s', (article_id,))[0]['featured_image'] == ''
+    # Remplacement : certains navigateurs annoncent « image/jpg » ; la signature du fichier suffit.
+    jpeg = bytes([0xFF, 0xD8, 0xFF, 0xE0]) + bytes(60)
+    response = admin.post('/admin/articles/save', [('_csrf', editor_token(admin)), ('id', article_id), ('title', 'Article dont on retire l’image'), ('author', 'A'),
+                                                   ('status', 'published'), ('language', 'fr')], files={'featured_image': ('photo.jpg', 'image/jpg', jpeg)})
+    assert response.status == 303, response.text[:300]
+    assert query('SELECT featured_image FROM articles WHERE id=%s', (article_id,))[0]['featured_image'].endswith('.jpg')
+    # Envoi plus gros que post_max_size : message clair au lieu de « Session expirée ».
+    big = admin.post('/admin/articles/save', [('_csrf', editor_token(admin)), ('id', article_id)], files={'featured_image': ('enorme.png', 'image/png', PNG + b'0' * (42 * 1024 * 1024))})
+    assert big.status == 413 and 'Envoi trop volumineux' in big.text
 
 
 def test_articles_epingles_textes_mis_en_avant_et_bouton_tous_les_articles(admin, visitor):
