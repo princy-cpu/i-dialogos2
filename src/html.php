@@ -185,6 +185,24 @@ function html_tokens(string $source): array
     return $tokens;
 }
 
+/** Mise en page d'un paragraphe : alignement, interligne (1 à 3), espacement avant/après et retrait (0 à 240 px). */
+function block_style(string $style): string
+{
+    $styles = [];
+    if (preg_match('/text-align\s*:\s*(left|center|right|justify)/i', $style, $m)) {
+        $styles[] = 'text-align:' . strtolower($m[1]);
+    }
+    if (preg_match('/line-height\s*:\s*(\d(?:\.\d{1,2})?)\s*(?:;|$)/i', $style, $m) && (float) $m[1] >= 1 && (float) $m[1] <= 3) {
+        $styles[] = 'line-height:' . $m[1];
+    }
+    foreach (['margin-top', 'margin-bottom', 'margin-left'] as $property) {
+        if (preg_match('/(?<![-\w])' . $property . '\s*:\s*(\d{1,3})(?:px)?\s*(?:;|$)/i', $style, $m) && (int) $m[1] <= 240) {
+            $styles[] = $property . ':' . (int) $m[1] . ((int) $m[1] ? 'px' : '');
+        }
+    }
+    return $styles ? ' style="' . esc(implode(';', $styles)) . '"' : '';
+}
+
 /** Nettoie le HTML saisi dans l'éditeur : seules les balises et styles autorisés sont conservés. */
 function safe_rich_html(string $source): string
 {
@@ -265,14 +283,15 @@ function safe_rich_html(string $source): string
             if (preg_match('/font-family\s*:\s*(Arial|Georgia|Times New Roman|Courier New)/i', $style, $m)) {
                 $styles[] = 'font-family:' . $m[1];
             }
-            if (preg_match('/color\s*:\s*(#[0-9a-f]{3,8}|(?:rgb\(\s*\d{1,3}\s*,\s*\d{1,3}\s*,\s*\d{1,3}\s*\)))/i', $style, $m)) {
+            if (preg_match('/(?<![-\w])color\s*:\s*(#[0-9a-f]{3,8}|(?:rgb\(\s*\d{1,3}\s*,\s*\d{1,3}\s*,\s*\d{1,3}\s*\)))/i', $style, $m)) {
                 $styles[] = 'color:' . $m[1];
             }
-            $safe = $styles ? ' style="' . esc(implode(';', $styles)) . '"' : '';
-        } elseif (in_array($tag, ['p', 'div', 'h2', 'h3', 'h4', 'blockquote'], true)) {
-            if (preg_match('/text-align\s*:\s*(left|center|right|justify)/i', $style, $m)) {
-                $safe = ' style="text-align:' . strtolower($m[1]) . '"';
+            if (preg_match('/background(?:-color)?\s*:\s*(#[0-9a-f]{3,8}|(?:rgb\(\s*\d{1,3}\s*,\s*\d{1,3}\s*,\s*\d{1,3}\s*\)))/i', $style, $m)) {
+                $styles[] = 'background-color:' . $m[1];  // surlignage
             }
+            $safe = $styles ? ' style="' . esc(implode(';', $styles)) . '"' : '';
+        } elseif (in_array($tag, ['p', 'div', 'h2', 'h3', 'h4', 'blockquote', 'li'], true)) {
+            $safe = block_style($style);
         } elseif ($tag === 'a') {
             $href = trim((string) ($values['href'] ?? ''));
             if (preg_match('#^(https://|http://|mailto:|/)#', $href)) {

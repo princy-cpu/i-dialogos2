@@ -145,3 +145,4 @@ a.admin-user{display:flex}
 /* Barre de mise en forme toujours visible pendant la rédaction, même en bas d’un long article. */
 .rich-toolbar{position:sticky;top:var(--admin-topbar-height,64px);z-index:15;box-shadow:0 6px 12px -10px #1b29204d}
 .rich-editor{font-weight:400;color:#28232e}
+.highlight-tool span{background:#fff1a6;padding:0 3px;font-weight:700}.rich-toolbar select#line-height,.rich-toolbar select#paragraph-spacing{max-width:118px}
