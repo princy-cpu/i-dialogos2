@@ -126,8 +126,9 @@ if (richEditor && articleEditorForm) {
         selection.addRange(savedRange);
       }
       document.execCommand('insertImage', false, answer.url);
+      adminToast('Image insérée dans le texte. Pensez à enregistrer l’article.');
     } catch (error) {
-      alert(error.message || 'L’image n’a pas pu être envoyée.');
+      adminToast(error.message || 'L’image n’a pas pu être envoyée.', 'error');
     }
     uploadButton.disabled = false;
     uploadInput.value = '';
@@ -180,6 +181,27 @@ if (richEditor && articleEditorForm) {
       document.querySelector('.image-placeholder')?.remove();
     }
     preview.src = URL.createObjectURL(file);
+    // L'aperçu n'est pas encore enregistré : sans ce rappel, actualiser la page ramène l'ancienne image.
+    let pending = imageInput.closest('.side-panel').querySelector('.featured-pending');
+    if (!pending) {
+      pending = Object.assign(document.createElement('p'), { className: 'featured-pending' });
+      pending.setAttribute('role', 'status');
+      preview.after(pending);
+    }
+    pending.textContent = 'Nouvelle image choisie, pas encore enregistrée : cliquez sur « ' + (articleEditorForm.querySelector('.side-actions button[type="submit"]')?.textContent.trim() || 'Enregistrer') + ' » pour la mettre en ligne.';
+  });
+
+  // Modifications non enregistrées : on prévient avant de quitter ou d'actualiser la page.
+  let unsaved = false;
+  const markUnsaved = () => { unsaved = true; };
+  articleEditorForm.addEventListener('input', markUnsaved);
+  articleEditorForm.addEventListener('change', markUnsaved);
+  richEditor.addEventListener('input', markUnsaved);
+  articleEditorForm.addEventListener('submit', () => { unsaved = false; });
+  window.addEventListener('beforeunload', event => {
+    if (!unsaved) return;
+    event.preventDefault();
+    event.returnValue = '';
   });
 }
 
@@ -222,3 +244,39 @@ if (bulkForm) {
   });
   refresh();
 }
+
+// Notifications : confirmation après chaque action (envoyée par le serveur) et erreurs des formulaires.
+function adminToast(message, type = 'success') {
+  const toast = document.createElement('div');
+  toast.className = 'admin-toast is-' + type;
+  toast.setAttribute('role', type === 'error' ? 'alert' : 'status');
+  toast.dataset.toast = '';
+  toast.innerHTML = '<span class="admin-toast-icon" aria-hidden="true"></span><p></p><button type="button" class="admin-toast-close" aria-label="Fermer la notification" data-toast-close>×</button>';
+  toast.querySelector('.admin-toast-icon').textContent = type === 'error' ? '!' : '✓';
+  toast.querySelector('p').textContent = message;
+  document.body.append(toast);
+  setupToast(toast);
+}
+function toastStack() {
+  let stack = document.querySelector('.admin-toasts');
+  if (!stack) {
+    stack = Object.assign(document.createElement('div'), { className: 'admin-toasts' });
+    document.body.append(stack);
+  }
+  return stack;
+}
+function setupToast(toast) {
+  toastStack().append(toast);
+  const close = () => { toast.classList.add('is-leaving'); setTimeout(() => toast.remove(), 250); };
+  toast.querySelector('[data-toast-close]')?.addEventListener('click', close);
+  // Les confirmations disparaissent seules ; les erreurs restent jusqu'à ce qu'on les ferme.
+  if (toast.classList.contains('is-success')) {
+    let timer = setTimeout(close, 6000);
+    toast.addEventListener('mouseenter', () => clearTimeout(timer));
+    toast.addEventListener('mouseleave', () => { timer = setTimeout(close, 3000); });
+  }
+}
+document.querySelectorAll('[data-toast]').forEach(setupToast);
+document.querySelectorAll('.form-error').forEach(error => {
+  if (error.textContent.trim()) adminToast(error.textContent.trim(), 'error');
+});

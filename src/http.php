@@ -92,6 +92,7 @@ final class App
     public static ?string $pendingCookie = null;
     public static array $afterResponse = [];
     public static ?array $sessionCache = null;
+    public static bool $noticeSet = false;
 }
 
 function request(): Request
@@ -108,6 +109,13 @@ function send_body(string $body, int $status = 200, string $type = 'text/html; c
     header('X-Frame-Options: DENY');
     header('Referrer-Policy: same-origin');
     header('Content-Security-Policy: ' . CSP);
+    if (!isset($headers['Cache-Control']) && (str_starts_with($type, 'text/html') || str_starts_with($type, 'application/json'))) {
+        // Pages générées : jamais servies depuis un cache (navigateur, cache LiteSpeed de l'hébergeur), sinon une
+        // modification enregistrée (image, texte) peut sembler perdue après actualisation.
+        $private = str_starts_with(request()->path, '/admin') || isset($_COOKIE[COOKIE_NAME]);
+        header('Cache-Control: ' . ($private ? 'no-store, private' : 'no-cache'));
+        header('X-LiteSpeed-Cache-Control: no-cache');
+    }
     foreach ($headers as $name => $value) {
         header("$name: $value");
     }
@@ -125,6 +133,7 @@ function redirect(string $location, array $cookies = [], int $status = 303): voi
     http_response_code($status);
     header('Location: ' . $location);
     header('Content-Length: 0');
+    header('Cache-Control: no-store');
     if (App::$pendingCookie !== null && !$cookies) {
         $cookies[] = App::$pendingCookie;
     }

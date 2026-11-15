@@ -21,6 +21,7 @@ require __DIR__ . '/institution_pages.php';
 require __DIR__ . '/attachments.php';
 require __DIR__ . '/site_images.php';
 require __DIR__ . '/ops.php';
+require __DIR__ . '/notices.php';
 
 mb_internal_encoding('UTF-8');
 header_remove('X-Powered-By');
@@ -311,6 +312,21 @@ function route_post(string $path): void
         '/admin/templates' => 'templates_post', '/admin/languages' => 'languages_post', '/admin/newsletter/process' => 'newsletter_admin_process',
         '/admin/users/save' => 'save_user', '/admin/articles/bulk' => 'bulk_articles', '/admin/profile' => 'save_profile',
         '/admin/accueil' => 'save_home_settings', '/admin/articles/image' => 'upload_article_image', '/admin/images' => 'save_site_image'];
+    admin_post_dispatch($path, $segments, $routes);
+    if (http_response_code() === 303) {
+        // Notification par défaut sur la page suivante (« Article supprimé. », « Profil enregistré. »…).
+        $location = '';
+        foreach (headers_list() as $header) {
+            if (stripos($header, 'Location:') === 0) {
+                $location = trim(substr($header, 9));
+            }
+        }
+        default_notice($path, $location);
+    }
+}
+
+function admin_post_dispatch(string $path, array $segments, array $routes): void
+{
     if (isset($routes[$path])) {
         $routes[$path]();
     } elseif (count($segments) === 4 && $segments[1] === 'events' && $segments[3] === 'delete') {
