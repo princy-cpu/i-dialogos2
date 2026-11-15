@@ -770,3 +770,4 @@ body.pdf-reader-open{overflow:hidden}
 @media(max-width:600px){.pdf-reader-page{display:none}.pdf-reader-bar{padding:8px 10px}}
 /* Un mot ou une adresse très longs (texte importé d’un PDF) ne doivent jamais élargir la colonne de l’article. */
 .article-layout>*{min-width:0}.article-rich-content,.article-excerpt,.article-page h1{overflow-wrap:anywhere}
+.mk-network-cta{display:flex;justify-content:center;margin:30px auto 8px}

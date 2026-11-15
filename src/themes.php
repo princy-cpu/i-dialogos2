@@ -87,12 +87,12 @@ function theme_data(): array
   },
   {
    "id": "geopolitique",
-   "title": "Géopolitique",
+   "title": "Géopolitique et coopération internationale",
    "question": "Comprendre un monde en mutation",
    "text": "Dans un monde marqué par de profondes recompositions, I-Dialogos propose une lecture pluraliste des équilibres internationaux. En croisant les regards issus de différents continents, le think tank défend le dialogue, le multilatéralisme et le rôle des Nations unies dans la recherche de solutions pacifiques et partagées.",
    "text2": "",
    "signature": "",
-   "button": "Géopolitique",
+   "button": "Géopolitique et coopération internationale",
    "image": "geopolitics.webp",
    "category": "geopolitique"
   },

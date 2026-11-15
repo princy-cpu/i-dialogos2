@@ -280,3 +280,20 @@ document.querySelectorAll('[data-toast]').forEach(setupToast);
 document.querySelectorAll('.form-error').forEach(error => {
   if (error.textContent.trim()) adminToast(error.textContent.trim(), 'error');
 });
+
+// Hauteur réelle de la barre du haut (plus haute sur mobile) : la barre de mise en forme se colle juste dessous.
+const adminTopbar = document.querySelector('.admin-topbar');
+if (adminTopbar && document.querySelector('.rich-toolbar')) {
+  // Sur mobile, la rangée de liens de l'espace adhérent reste aussi collée sous la barre du haut : on l'ajoute.
+  const syncTopbar = () => {
+    let bottom = adminTopbar.offsetHeight;
+    const sidebar = document.querySelector('.admin-sidebar');
+    const style = sidebar && getComputedStyle(sidebar);
+    if (style && style.position === 'sticky' && sidebar.offsetWidth > window.innerWidth * 0.6) {
+      bottom = Math.max(bottom, (parseFloat(style.top) || 0) + sidebar.offsetHeight);
+    }
+    document.documentElement.style.setProperty('--admin-topbar-height', bottom + 'px');
+  };
+  syncTopbar();
+  window.addEventListener('resize', syncTopbar);
+}
