@@ -140,8 +140,14 @@ if (richEditor && articleEditorForm) {
       const command = button.dataset.command;
       if (command) document.execCommand(command, false, null);
       if (button.id === 'link-tool') {
+        // La fenêtre de saisie fait perdre la sélection : on la remet avant de créer le lien.
+        const range = window.getSelection().rangeCount ? window.getSelection().getRangeAt(0).cloneRange() : null;
         const url = prompt('Adresse du lien (https://… ou mailto:…)');
-        if (url) document.execCommand('createLink', false, url);
+        if (url) {
+          focusEditor();
+          if (range) { window.getSelection().removeAllRanges(); window.getSelection().addRange(range); }
+          document.execCommand('createLink', false, url);
+        }
       }
       button.classList.toggle('active', ['bold', 'italic', 'underline', 'strikeThrough'].some(name => name === command && document.queryCommandState(name)));
     });
@@ -226,6 +232,101 @@ if (richEditor && articleEditorForm) {
     document.execCommand('hiliteColor', false, event.target.value);
     document.execCommand('styleWithCSS', false, false);
     changed();
+  });
+  // Mini-barre au-dessus du texte sélectionné, comme dans Word : chaque bouton reprend l'outil correspondant de la
+  // barre principale (même comportement, même nettoyage à l'enregistrement).
+  const bubble = document.createElement('div');
+  bubble.className = 'format-bubble';
+  bubble.setAttribute('role', 'toolbar');
+  bubble.setAttribute('aria-label', 'Mise en forme de la sélection');
+  bubble.hidden = true;
+  bubble.innerHTML = `
+    <button type="button" data-proxy='[data-command="bold"]' data-state="bold" title="Gras (Ctrl+B)"><b>G</b></button>
+    <button type="button" data-proxy='[data-command="italic"]' data-state="italic" title="Italique (Ctrl+I)"><i>I</i></button>
+    <button type="button" data-proxy='[data-command="underline"]' data-state="underline" title="Souligné (Ctrl+U)"><u>S</u></button>
+    <button type="button" data-proxy='[data-command="strikeThrough"]' data-state="strikeThrough" title="Barré"><s>ab</s></button>
+    <span class="format-bubble-sep"></span>
+    <label class="format-bubble-color" title="Couleur du texte"><span aria-hidden="true">A</span><input type="color" value="#28232e" data-proxy-input="#font-color" aria-label="Couleur du texte"></label>
+    <label class="format-bubble-color is-highlight" title="Surligner"><span aria-hidden="true">ab</span><input type="color" value="#fff1a6" data-proxy-input="#highlight-color" aria-label="Couleur de surlignage"></label>
+    <button type="button" data-proxy="#link-tool" title="Insérer un lien">↗</button>
+    <span class="format-bubble-sep"></span>
+    <select data-proxy-select="#block-format" aria-label="Style de paragraphe" title="Style de paragraphe"><option value="">Style</option><option value="p">Paragraphe</option><option value="h2">Titre 2</option><option value="h3">Titre 3</option><option value="blockquote">Citation</option></select>
+    <select data-proxy-select="#font-size" aria-label="Taille du texte" title="Taille du texte"><option value="">Taille</option><option value="2">Petite</option><option value="3">Normale</option><option value="4">Grande</option><option value="5">Très grande</option></select>
+    <select data-proxy-select="#line-height" aria-label="Interligne" title="Interligne"><option value="">Interligne</option><option value="1">Simple</option><option value="1.15">1,15</option><option value="1.5">1,5</option><option value="2">Double</option><option value="reset">Par défaut</option></select>
+    <span class="format-bubble-sep"></span>
+    <button type="button" data-proxy='[data-command="justifyLeft"]' title="Aligner à gauche"><svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><path d="M2 3h12M2 6.3h8M2 9.6h12M2 13h8" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg></button>
+    <button type="button" data-proxy='[data-command="justifyCenter"]' title="Centrer"><svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><path d="M2 3h12M4 6.3h8M2 9.6h12M4 13h8" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg></button>
+    <button type="button" data-proxy='[data-command="justifyFull"]' title="Justifier"><svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><path d="M2 3h12M2 6.3h12M2 9.6h12M2 13h12" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg></button>
+    <button type="button" data-proxy='[data-command="insertUnorderedList"]' title="Liste à puces">•</button>
+    <button type="button" data-proxy='[data-command="removeFormat"]' title="Effacer la mise en forme">Tx</button>`;
+  document.body.append(bubble);
+  let bubbleBusy = false;  // une liste ou un nuancier de la mini-barre est ouvert : on la garde affichée
+  const refreshBubbleState = () => bubble.querySelectorAll('[data-state]').forEach(button => {
+    let active = false;
+    try { active = document.queryCommandState(button.dataset.state); } catch { active = false; }
+    button.classList.toggle('active', active);
+  });
+  const placeBubble = () => {
+    const selection = window.getSelection();
+    if (!selection.rangeCount || selection.isCollapsed || !richEditor.contains(selection.getRangeAt(0).commonAncestorContainer)) {
+      if (!bubbleBusy) bubble.hidden = true;
+      return;
+    }
+    const rect = selection.getRangeAt(0).getBoundingClientRect();
+    if (!rect.width && !rect.height) return;
+    bubble.hidden = false;
+    refreshBubbleState();
+    const toolbarBottom = document.querySelector('.rich-toolbar').getBoundingClientRect().bottom;
+    const width = bubble.offsetWidth;
+    const height = bubble.offsetHeight;
+    let top = rect.top - height - 10;
+    bubble.classList.toggle('is-below', top < toolbarBottom + 4);
+    if (top < toolbarBottom + 4) top = rect.bottom + 10;  // pas de place au-dessus : sous la sélection
+    const left = Math.min(Math.max(8, rect.left + rect.width / 2 - width / 2), window.innerWidth - width - 8);
+    bubble.style.top = Math.round(top) + 'px';
+    bubble.style.left = Math.round(left) + 'px';
+  };
+  let bubbleFrame = 0;
+  const scheduleBubble = () => { cancelAnimationFrame(bubbleFrame); bubbleFrame = requestAnimationFrame(placeBubble); };
+  document.addEventListener('selectionchange', scheduleBubble);
+  window.addEventListener('scroll', scheduleBubble, { passive: true });
+  window.addEventListener('resize', scheduleBubble);
+  richEditor.addEventListener('keydown', event => { if (event.key === 'Escape') bubble.hidden = true; });
+  bubble.addEventListener('mousedown', event => {
+    // Les boutons ne prennent pas le focus : la sélection reste en place.
+    if (event.target.closest('button')) event.preventDefault();
+  });
+  bubble.querySelectorAll('button[data-proxy]').forEach(button => button.addEventListener('click', () => {
+    restoreSelection();
+    document.querySelector('.rich-toolbar ' + button.dataset.proxy)?.click();
+    scheduleBubble();
+  }));
+  bubble.querySelectorAll('select[data-proxy-select]').forEach(select => {
+    select.addEventListener('focus', () => { bubbleBusy = true; });
+    select.addEventListener('blur', () => { bubbleBusy = false; });
+    select.addEventListener('change', () => {
+      const target = document.querySelector(select.dataset.proxySelect);
+      if (target && select.value) {
+        restoreSelection();
+        target.value = select.value;
+        target.dispatchEvent(new Event('change', { bubbles: true }));
+      }
+      select.value = '';
+      bubbleBusy = false;
+      restoreSelection();
+      scheduleBubble();
+    });
+  });
+  bubble.querySelectorAll('input[data-proxy-input]').forEach(input => {
+    input.addEventListener('focus', () => { bubbleBusy = true; });
+    input.addEventListener('blur', () => { bubbleBusy = false; });
+    input.addEventListener('input', () => {
+      const target = document.querySelector(input.dataset.proxyInput);
+      if (!target) return;
+      restoreSelection();
+      target.value = input.value;
+      target.dispatchEvent(new Event('input', { bubbles: true }));
+    });
   });
   articleEditorForm.addEventListener('submit', () => {
     document.querySelector('#body-html').value = richEditor.innerHTML;
