@@ -706,6 +706,18 @@ def test_notifications_apres_chaque_action_et_pages_jamais_en_cache(admin, visit
     assert 'admin-toast' not in visitor.get('/').text
 
 
+def test_interligne_espacement_retrait_et_surlignage_conserves(admin, visitor):
+    body = ('<p style="line-height:1.5;margin-top:0;margin-bottom:28px;margin-left:80px;text-align:justify;position:fixed">Paragraphe aéré '
+            '<span style="background-color: rgb(255, 241, 166)">surligné</span></p><p style="line-height:9;margin-left:999px">Valeurs hors limites</p>')
+    article_id = create_article(admin, 'Article avec interlignes', body=body)
+    page = visitor.get('/article/' + article_slug(article_id)).text
+    assert 'style="text-align:justify;line-height:1.5;margin-top:0;margin-bottom:28px;margin-left:80px"' in page
+    assert '<span style="background-color:rgb(255, 241, 166)">surligné</span>' in page
+    assert 'position:fixed' not in page and 'line-height:9' not in page and '999px' not in page
+    editor = admin.get(f'/admin/articles/{article_id}/edit').text
+    assert 'id="line-height"' in editor and 'id="paragraph-spacing"' in editor and 'data-indent="1"' in editor and 'id="highlight-color"' in editor
+
+
 def test_articles_epingles_textes_mis_en_avant_et_bouton_tous_les_articles(admin, visitor):
     pinned = create_article(admin, 'Article épinglé qui reste en tête')
     query("UPDATE articles SET published_at='2002-02-02T10:00:00+00:00' WHERE id=%s", (pinned,))

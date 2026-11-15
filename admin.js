@@ -160,6 +160,73 @@ if (richEditor && articleEditorForm) {
     focusEditor();
     document.execCommand('foreColor', false, event.target.value);
   });
+
+  // Mise en page des paragraphes : interligne, espacement, retrait. La sélection de l'éditeur est mémorisée, car
+  // ouvrir une liste déroulante peut la faire perdre.
+  let editorRange = null;
+  document.addEventListener('selectionchange', () => {
+    const selection = window.getSelection();
+    if (selection.rangeCount && richEditor.contains(selection.getRangeAt(0).commonAncestorContainer)) editorRange = selection.getRangeAt(0).cloneRange();
+  });
+  const restoreSelection = () => {
+    focusEditor();
+    if (!editorRange) return;
+    const selection = window.getSelection();
+    selection.removeAllRanges();
+    selection.addRange(editorRange);
+  };
+  const BLOCKS = 'p, div, h2, h3, h4, blockquote, li';
+  const blockOf = node => {
+    const element = node.nodeType === 1 ? node : node.parentElement;
+    const block = element?.closest(BLOCKS);
+    return block && block !== richEditor && richEditor.contains(block) ? block : null;
+  };
+  const selectedBlocks = () => {
+    restoreSelection();
+    const selection = window.getSelection();
+    if (!selection.rangeCount) return [];
+    // Texte saisi hors paragraphe : on le place d'abord dans un paragraphe.
+    if (!blockOf(selection.getRangeAt(0).startContainer)) document.execCommand('formatBlock', false, '<p>');
+    const range = window.getSelection().getRangeAt(0);
+    const blocks = [...richEditor.querySelectorAll(BLOCKS)].filter(block => range.intersectsNode(block) && !block.querySelector(BLOCKS));
+    const first = blockOf(range.startContainer);
+    if (!blocks.length && first) blocks.push(first);
+    return blocks;
+  };
+  const changed = () => richEditor.dispatchEvent(new Event('input', { bubbles: true }));
+  document.querySelector('#line-height')?.addEventListener('change', event => {
+    const value = event.target.value;
+    selectedBlocks().forEach(block => { block.style.lineHeight = value === 'reset' ? '' : value; });
+    event.target.value = '';
+    changed();
+  });
+  document.querySelector('#paragraph-spacing')?.addEventListener('change', event => {
+    const value = event.target.value;
+    selectedBlocks().forEach(block => {
+      block.style.marginTop = value === 'reset' ? '' : '0';
+      block.style.marginBottom = value === 'reset' ? '' : value + 'px';
+    });
+    event.target.value = '';
+    changed();
+  });
+  document.querySelectorAll('.rich-toolbar [data-indent]').forEach(button => {
+    button.addEventListener('mousedown', event => event.preventDefault());
+    button.addEventListener('click', () => {
+      const step = Number(button.dataset.indent) * 40;
+      selectedBlocks().forEach(block => {
+        const next = Math.min(240, Math.max(0, (parseInt(block.style.marginLeft, 10) || 0) + step));
+        block.style.marginLeft = next ? next + 'px' : '';
+      });
+      changed();
+    });
+  });
+  document.querySelector('#highlight-color')?.addEventListener('input', event => {
+    restoreSelection();
+    document.execCommand('styleWithCSS', false, true);
+    document.execCommand('hiliteColor', false, event.target.value);
+    document.execCommand('styleWithCSS', false, false);
+    changed();
+  });
   articleEditorForm.addEventListener('submit', () => {
     document.querySelector('#body-html').value = richEditor.innerHTML;
   });
@@ -280,3 +347,20 @@ document.querySelectorAll('[data-toast]').forEach(setupToast);
 document.querySelectorAll('.form-error').forEach(error => {
   if (error.textContent.trim()) adminToast(error.textContent.trim(), 'error');
 });
+
+// Hauteur réelle de la barre du haut (plus haute sur mobile) : la barre de mise en forme se colle juste dessous.
+const adminTopbar = document.querySelector('.admin-topbar');
+if (adminTopbar && document.querySelector('.rich-toolbar')) {
+  // Sur mobile, la rangée de liens de l'espace adhérent reste aussi collée sous la barre du haut : on l'ajoute.
+  const syncTopbar = () => {
+    let bottom = adminTopbar.offsetHeight;
+    const sidebar = document.querySelector('.admin-sidebar');
+    const style = sidebar && getComputedStyle(sidebar);
+    if (style && style.position === 'sticky' && sidebar.offsetWidth > window.innerWidth * 0.6) {
+      bottom = Math.max(bottom, (parseFloat(style.top) || 0) + sidebar.offsetHeight);
+    }
+    document.documentElement.style.setProperty('--admin-topbar-height', bottom + 'px');
+  };
+  syncTopbar();
+  window.addEventListener('resize', syncTopbar);
+}

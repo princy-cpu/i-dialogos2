@@ -203,6 +203,10 @@ const MIGRATIONS = [
         // pinned = 1 : l'article reste en tête de l'accueil, de sa thématique et des Notes, même après de nouvelles publications.
         'ALTER TABLE articles ADD COLUMN IF NOT EXISTS pinned INTEGER NOT NULL DEFAULT 0',
     ]],
+    9 => ['Thématique « Géopolitique » renommée « Géopolitique et coopération internationale »', [
+        "UPDATE categories SET name='Géopolitique et coopération internationale' WHERE slug='geopolitique' AND name='Géopolitique'"
+            . " AND NOT EXISTS (SELECT 1 FROM categories WHERE name='Géopolitique et coopération internationale')",
+    ]],
 ];
 
 function latest_migration(): int
@@ -273,9 +277,11 @@ function seed_defaults(Db $db): void
         $db->execute('INSERT OR IGNORE INTO languages(code,label,enabled,is_default) VALUES(?,?,1,?)', [$code, $label, $default]);
     }
     $defaults = ['IA – Intelligence artificielle', 'Jeunesse', 'Médias et pluralisme', 'Francophonies', 'Démocraties',
-        'Ultramarins', 'Eau, climat et environnement', 'Géopolitique', 'Santé et développement'];
+        'Ultramarins', 'Eau, climat et environnement', 'Géopolitique et coopération internationale', 'Santé et développement'];
+    // Adresse fixe pour les thématiques renommées : /thematique/geopolitique reste valable.
+    $slugs = ['Géopolitique et coopération internationale' => 'geopolitique'];
     foreach ($defaults as $name) {
-        $db->execute('INSERT OR IGNORE INTO categories(name, slug, created_at) VALUES(?,?,?)', [$name, slugify($name), now_iso()]);
+        $db->execute('INSERT OR IGNORE INTO categories(name, slug, created_at) VALUES(?,?,?)', [$name, $slugs[$name] ?? slugify($name), now_iso()]);
     }
     if ((int) $db->value('SELECT COUNT(*) FROM templates') === 0) {
         $skeleton = '<h2>Introduction</h2><p>Présentez le sujet et la question principale.</p><h2>Développement</h2><p>Développez votre analyse et vos arguments.</p><h2>Conclusion</h2><p>Résumez les idées essentielles.</p>';
