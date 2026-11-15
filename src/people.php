@@ -201,7 +201,7 @@ function person_form(string $kind, ?string $personId = null, string $error = '',
         . '<label class="admin-field">Pays ou région<input name="region" maxlength="120" value="' . esc($get('region')) . '" placeholder="Ex. Mali, Bologne (Italie)"></label>'
         . '<label class="admin-field">Description<textarea name="description" rows="7" maxlength="4000">' . esc($get('description')) . '</textarea><small class="field-help">Un saut de ligne crée un nouveau paragraphe.</small></label>'
         . $specific
-        . '<div class="admin-field">Photo' . $photo . '<input type="file" name="photo" accept="image/jpeg,image/png,image/webp,image/gif" aria-label="Choisir une photo"><small class="field-help">JPG, PNG, WebP ou GIF · 8 Mo maximum.</small></div>'
+        . '<div class="admin-field">Photo' . $photo . '<input type="file" name="photo" accept="image/jpeg,image/png,image/webp,image/gif" aria-label="Choisir une photo"><small class="field-help">JPG, PNG, WebP ou GIF. Les photos lourdes sont allégées automatiquement à l’envoi.</small></div>'
         . '<div class="side-actions"><button class="primary-button" type="submit">Enregistrer</button><a class="plain-button" href="/admin/' . $labels['path'] . '">Annuler</a></div></form></section></main>';
     send_body(admin_page(($person ? 'Modifier ' : 'Nouvel ') . $labels['singular'], $content, $labels['path']));
 }

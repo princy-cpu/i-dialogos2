@@ -237,14 +237,33 @@ function route_get(string $path): void
     not_found_public();
 }
 
+/** Valeur d'une directive PHP de taille (« 8M », « 512K », « 1G ») en octets ; 0 = pas de limite. */
+function ini_bytes(string $value): int
+{
+    $value = trim($value);
+    $number = (int) $value;
+    return match (strtoupper(substr($value, -1))) {
+        'G' => $number * 1073741824,
+        'M' => $number * 1048576,
+        'K' => $number * 1024,
+        default => $number,
+    };
+}
+
 function route_post(string $path): void
 {
     if (str_starts_with($path, '/_ops/')) {
         ops_route($path);
         return;
     }
-    if ((int) ($_SERVER['CONTENT_LENGTH'] ?? 0) > MAX_REQUEST) {
-        send_body(site_page('Erreur', '<main class="admin-shell"><h1>La requête est trop volumineuse.</h1></main>'), 413);
+    $length = (int) ($_SERVER['CONTENT_LENGTH'] ?? 0);
+    $serverLimit = ini_bytes((string) ini_get('post_max_size'));
+    if ($length > MAX_REQUEST || ($serverLimit > 0 && $length > $serverLimit)) {
+        // Au-delà de post_max_size, PHP vide le formulaire : sans ce message, on verrait « Session expirée ».
+        $referer = (string) parse_url((string) ($_SERVER['HTTP_REFERER'] ?? ''), PHP_URL_PATH);
+        $back = str_starts_with($referer, '/') && !str_starts_with($referer, '//') ? $referer : '/admin';
+        $limit = $serverLimit > 0 ? min($serverLimit, MAX_REQUEST) : MAX_REQUEST;
+        send_body(site_page('Envoi trop volumineux', '<main class="admin-shell"><h1>Envoi trop volumineux</h1><p>Les fichiers joints dépassent la taille acceptée par le serveur (' . round($limit / 1048576) . ' Mo au total). Réduisez les images ou les PDF, puis recommencez.</p><a href="' . esc($back) . '">← Revenir au formulaire</a></main>'), 413);
         return;
     }
     ensure_schema(db());

@@ -1,3 +1,74 @@
+// Images trop lourdes (photos d'appareil, captures) : réduites dans le navigateur avant l'envoi,
+// pour passer sous la limite du serveur (2 Mo par défaut chez de nombreux hébergeurs).
+const IMAGE_SOFT_LIMIT = 1.5 * 1024 * 1024;
+const IMAGE_MAX_SIDE = 2400;
+async function shrinkImage(file) {
+  if (!file || file.size <= IMAGE_SOFT_LIMIT || !/^image\/(jpeg|png|webp)$/.test(file.type)) return file;
+  let bitmap;
+  try { bitmap = await createImageBitmap(file); } catch { return file; }
+  const canvas = document.createElement('canvas');
+  const context = canvas.getContext('2d');
+  let side = IMAGE_MAX_SIDE;
+  let result = file;
+  for (let attempt = 0; attempt < 5; attempt += 1) {
+    const ratio = Math.min(1, side / Math.max(bitmap.width, bitmap.height));
+    canvas.width = Math.round(bitmap.width * ratio);
+    canvas.height = Math.round(bitmap.height * ratio);
+    context.clearRect(0, 0, canvas.width, canvas.height);
+    context.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+    // PNG avec transparence (logo) : reste en PNG ; sinon JPEG, bien plus léger pour une photo.
+    let transparent = false;
+    if (file.type === 'image/png') {
+      const pixels = context.getImageData(0, 0, canvas.width, canvas.height).data;
+      for (let i = 3; i < pixels.length; i += 4 * 16) if (pixels[i] < 255) { transparent = true; break; }
+    }
+    const type = transparent ? 'image/png' : 'image/jpeg';
+    const blob = await new Promise(resolve => canvas.toBlob(resolve, type, 0.85));
+    if (!blob) return file;
+    const name = file.name.replace(/\.[^.]+$/, '') + (transparent ? '.png' : '.jpg');
+    result = new File([blob], name, { type, lastModified: Date.now() });
+    if (result.size <= IMAGE_SOFT_LIMIT) break;
+    side = Math.round(side * 0.75);
+  }
+  bitmap.close?.();
+  return result.size < file.size ? result : file;
+}
+
+const pendingImages = new Set();
+document.addEventListener('change', event => {
+  const input = event.target;
+  if (!(input instanceof HTMLInputElement) || input.type !== 'file' || input.multiple || !input.name || !/image\//.test(input.accept) || !input.files?.[0]) return;
+  const original = input.files[0];
+  if (original.size <= IMAGE_SOFT_LIMIT) return;
+  let status = input.parentElement.querySelector('.image-shrink-status');
+  if (!status) {
+    status = Object.assign(document.createElement('small'), { className: 'field-help image-shrink-status' });
+    status.setAttribute('aria-live', 'polite');
+    input.after(status);
+  }
+  const megabytes = size => (size / 1048576).toLocaleString('fr-FR', { maximumFractionDigits: 1 }) + ' Mo';
+  status.textContent = 'Préparation de l’image (' + megabytes(original.size) + ')…';
+  const job = shrinkImage(original).then(smaller => {
+    if (smaller !== original && input.files?.[0] === original) {
+      const transfer = new DataTransfer();
+      transfer.items.add(smaller);
+      input.files = transfer.files;
+      status.textContent = 'Image allégée pour l’envoi : ' + megabytes(original.size) + ' → ' + megabytes(smaller.size) + '.';
+    } else {
+      status.textContent = '';
+    }
+  }).finally(() => pendingImages.delete(job));
+  pendingImages.add(job);
+}, true);
+document.addEventListener('submit', event => {
+  if (!pendingImages.size) return;
+  // Une réduction est encore en cours : on attend sa fin puis on renvoie le formulaire.
+  event.preventDefault();
+  const form = event.target;
+  const submitter = event.submitter;
+  Promise.allSettled([...pendingImages]).then(() => form.requestSubmit(submitter || undefined));
+}, true);
+
 const richEditor = document.querySelector('#rich-editor');
 const articleEditorForm = document.querySelector('#article-editor-form');
 if (richEditor && articleEditorForm) {
@@ -42,7 +113,7 @@ if (richEditor && articleEditorForm) {
     if (!file) return;
     const data = new FormData();
     data.set('_csrf', articleEditorForm.querySelector('input[name="_csrf"]').value);
-    data.set('image', file);
+    data.set('image', await shrinkImage(file));
     uploadButton.disabled = true;
     try {
       const response = await fetch('/admin/articles/image', { method: 'POST', body: data, credentials: 'same-origin' });
